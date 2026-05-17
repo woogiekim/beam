@@ -671,8 +671,8 @@ class FileSelectScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "back", "Back"),
-        Binding("ctrl+d", "deploy_selected", "Deploy", priority=True),
-        Binding("ctrl+x", "delete_remote_selected", "Delete Remote", priority=True),
+        Binding("ctrl+u", "deploy_selected", "Deploy", priority=True),
+        Binding("ctrl+d", "delete_remote_selected", "Delete Remote", priority=True),
         Binding("ctrl+r", "show_rollback", "Rollback", priority=True),
         Binding("space", "toggle_selection", "Toggle", show=False),
         Binding("f5", "refresh_files", "Refresh", priority=True),
@@ -848,14 +848,14 @@ class FileSelectScreen(Screen):
             with Container(id="local-panel"):
                 yield Label(
                     "[bold bright_cyan]  LOCAL[/]"
-                    "  [dim]Space select  ·  Ctrl+A all/none  ·  Ctrl+D deploy[/]",
+                    "  [dim]Space select  ·  Ctrl+A all/none  ·  Ctrl+U deploy[/]",
                     classes="panel-header",
                 )
                 yield BeamSelectionList(id="local-list")
             with Container(id="remote-panel"):
                 yield Label(
                     "[bold bright_magenta]  REMOTE[/]"
-                    "  [dim]Space select  ·  Ctrl+X delete[/]",
+                    "  [dim]Space select  ·  Ctrl+D delete[/]",
                     classes="panel-header",
                 )
                 yield BeamSelectionList(id="remote-list")
