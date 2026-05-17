@@ -30,7 +30,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
     Footer,
@@ -347,7 +347,7 @@ class WorkspaceFormScreen(Screen):
 # ---------------------------------------------------------------------------
 
 
-class DeleteConfirmScreen(Screen):
+class DeleteConfirmScreen(ModalScreen):
     """Confirmation dialog before deleting a workspace."""
 
     BINDINGS = [
@@ -359,7 +359,7 @@ class DeleteConfirmScreen(Screen):
     DeleteConfirmScreen {
         layout: vertical;
         align: center middle;
-        background: #020207;
+        background: rgba(2, 2, 7, 0.85);
     }
     #confirm-box {
         width: 64;
@@ -405,7 +405,7 @@ class DeleteConfirmScreen(Screen):
 # ---------------------------------------------------------------------------
 
 
-class ConfirmScreen(Screen):
+class ConfirmScreen(ModalScreen):
     """Generic confirmation dialog before executing a remote-affecting action.
 
     Shows a title and a body message, then waits for Enter (confirm) or Esc
@@ -422,7 +422,7 @@ class ConfirmScreen(Screen):
     ConfirmScreen {
         layout: vertical;
         align: center middle;
-        background: #0a0a0f;
+        background: rgba(10, 10, 15, 0.85);
     }
     #remote-confirm-box {
         width: 70;
