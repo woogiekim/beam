@@ -13,11 +13,10 @@ from typing import Optional
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import (
     Button,
-    DataTable,
     Footer,
     Header,
     Input,
@@ -366,6 +365,7 @@ class WorkspaceScreen(Screen):
         Binding("a", "add_workspace", "Add"),
         Binding("e", "edit_workspace", "Edit"),
         Binding("d", "delete_workspace", "Delete"),
+        Binding("enter", "select_workspace", "Open", show=False),
     ]
 
     CSS = """
@@ -378,13 +378,8 @@ class WorkspaceScreen(Screen):
         margin: 1 2;
     }
     #workspace-hint {
-        margin: 0 2 0 2;
+        margin: 1 2 0 2;
         color: $text-muted;
-    }
-    #workspace-actions {
-        height: 3;
-        margin: 0 2 1 2;
-        layout: horizontal;
     }
     """
 
@@ -395,16 +390,8 @@ class WorkspaceScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label(
-            "Select a workspace — [bold]Enter[/] to open  "
-            "[bold]A[/] add  [bold]E[/] edit  [bold]D[/] delete",
-            id="workspace-hint",
-        )
+        yield Label("Select a workspace and press Enter to open it.", id="workspace-hint")
         yield ListView(id="workspace-list")
-        with Horizontal(id="workspace-actions"):
-            yield Button("Add [a]", id="btn-add", variant="success")
-            yield Button("Edit [e]", id="btn-edit", variant="primary")
-            yield Button("Delete [d]", id="btn-delete", variant="error")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -452,12 +439,14 @@ class WorkspaceScreen(Screen):
             return None
         return workspaces[idx]
 
+    def action_select_workspace(self) -> None:
+        ws = self._get_selected_workspace()
+        if ws is None:
+            return
+        self.app.push_screen(FileSelectScreen(ws, self.session))
+
     def action_add_workspace(self) -> None:
         self.app.push_screen(WorkspaceFormScreen(self.config))
-
-    @on(Button.Pressed, "#btn-add")
-    def on_btn_add(self) -> None:
-        self.action_add_workspace()
 
     def action_edit_workspace(self) -> None:
         ws = self._get_selected_workspace()
@@ -466,20 +455,12 @@ class WorkspaceScreen(Screen):
             return
         self.app.push_screen(WorkspaceFormScreen(self.config, workspace=ws))
 
-    @on(Button.Pressed, "#btn-edit")
-    def on_btn_edit(self) -> None:
-        self.action_edit_workspace()
-
     def action_delete_workspace(self) -> None:
         ws = self._get_selected_workspace()
         if ws is None:
             self.notify("Select a workspace to delete.", severity="warning")
             return
         self.app.push_screen(DeleteConfirmScreen(self.config, ws.name))
-
-    @on(Button.Pressed, "#btn-delete")
-    def on_btn_delete(self) -> None:
-        self.action_delete_workspace()
 
 
 # ---------------------------------------------------------------------------
@@ -492,9 +473,10 @@ class FileSelectScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
-        Binding("d", "deploy_selected", "Deploy selected"),
+        Binding("d", "deploy_selected", "Deploy"),
         Binding("r", "show_rollback", "Rollback"),
-        Binding("space", "toggle_selection", "Toggle"),
+        Binding("space", "toggle_selection", "Toggle", show=False),
+        Binding("f5", "refresh_files", "Refresh"),
     ]
 
     CSS = """
@@ -503,7 +485,7 @@ class FileSelectScreen(Screen):
     }
     #info-bar {
         height: 3;
-        margin: 0 1;
+        margin: 1 2 0 2;
         padding: 0 1;
         background: $surface;
         border: round $primary-darken-2;
@@ -511,12 +493,7 @@ class FileSelectScreen(Screen):
     #file-list {
         height: 1fr;
         border: round $primary;
-        margin: 0 1;
-    }
-    #action-bar {
-        height: 3;
-        layout: horizontal;
-        margin: 0 1;
+        margin: 1 2;
     }
     """
 
@@ -536,10 +513,6 @@ class FileSelectScreen(Screen):
                 f"→ local: {self.workspace.local_root}"
             )
         yield SelectionList(id="file-list")
-        with Horizontal(id="action-bar"):
-            yield Button("Deploy selected [d]", id="btn-deploy", variant="primary")
-            yield Button("Rollback [r]", id="btn-rollback", variant="warning")
-            yield Button("Refresh [f5]", id="btn-refresh", variant="default")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -548,14 +521,14 @@ class FileSelectScreen(Screen):
     @work(thread=True)
     def _connect_and_load(self) -> None:
         """Connect to SFTP and load file list (runs in background thread)."""
-        self.call_from_thread(
+        self.app.call_from_thread(
             self.notify, f"Connecting to {self.workspace.host}...", timeout=3
         )
         client = SFTPClient()
         try:
             client.connect(self.workspace)
         except SFTPError as exc:
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.notify,
                 f"Connection failed: {exc}",
                 severity="error",
@@ -587,7 +560,7 @@ class FileSelectScreen(Screen):
 
         if diff.exceeds_threshold(self.workspace.diff_threshold):
             threshold_pct = int(self.workspace.diff_threshold * 100)
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.notify,
                 f"[bold yellow]Directory diff warning:[/] {diff.summary()}\n"
                 f"Mismatch exceeds {threshold_pct}% threshold. "
@@ -605,7 +578,7 @@ class FileSelectScreen(Screen):
             Selection(rel_path, rel_path, initial_state=False)
             for rel_path in local_paths
         ]
-        self.call_from_thread(self._update_file_list, selections)
+        self.app.call_from_thread(self._update_file_list, selections)
 
     def _update_file_list(self, selections: list[Selection]) -> None:
         sl: SelectionList = self.query_one("#file-list")
@@ -613,7 +586,6 @@ class FileSelectScreen(Screen):
         for sel in selections:
             sl.add_option(sel)
 
-    @on(Button.Pressed, "#btn-deploy")
     def action_deploy_selected(self) -> None:
         if self._sftp_client is None:
             self.notify("Not connected.", severity="error")
@@ -632,7 +604,6 @@ class FileSelectScreen(Screen):
             )
         )
 
-    @on(Button.Pressed, "#btn-rollback")
     def action_show_rollback(self) -> None:
         if self._sftp_client is None:
             self.notify("Not connected.", severity="error")
@@ -648,8 +619,7 @@ class FileSelectScreen(Screen):
             )
         )
 
-    @on(Button.Pressed, "#btn-refresh")
-    def on_refresh(self) -> None:
+    def action_refresh_files(self) -> None:
         self._load_file_list()
 
 
@@ -661,11 +631,17 @@ class FileSelectScreen(Screen):
 class DeployScreen(Screen):
     """Shows deployment progress and results."""
 
-    BINDINGS = [Binding("escape", "app.pop_screen", "Back")]
+    BINDINGS = [
+        Binding("escape", "app.pop_screen", "Back / Done"),
+    ]
 
     CSS = """
     DeployScreen {
         layout: vertical;
+    }
+    #deploy-info {
+        margin: 1 2 0 2;
+        color: $text-muted;
     }
     #deploy-log {
         height: 1fr;
@@ -695,14 +671,14 @@ class DeployScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Vertical():
-            yield Label(
-                f"Deploying [bold]{len(self.selected_paths)}[/] file(s) to "
-                f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]"
-            )
-            yield Static(id="deploy-log")
+        yield Label(
+            f"Deploying [bold]{len(self.selected_paths)}[/] file(s) to "
+            f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]",
+            id="deploy-info",
+        )
+        yield Static(id="deploy-log")
         with Horizontal(id="deploy-actions"):
-            yield Button("Done", id="btn-done", variant="success")
+            yield Button("Done [esc]", id="btn-done", variant="success")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -737,7 +713,7 @@ class DeployScreen(Screen):
     def _append_log(self, line: str) -> None:
         self._log_lines.append(line)
         text = "\n".join(self._log_lines)
-        self.call_from_thread(self._update_log, text)
+        self.app.call_from_thread(self._update_log, text)
 
     def _update_log(self, text: str) -> None:
         log: Static = self.query_one("#deploy-log")
@@ -756,21 +732,24 @@ class DeployScreen(Screen):
 class RollbackScreen(Screen):
     """Shows session rollback entries for restoring deployed files."""
 
-    BINDINGS = [Binding("escape", "app.pop_screen", "Back")]
+    BINDINGS = [
+        Binding("escape", "app.pop_screen", "Cancel"),
+        Binding("ctrl+r", "do_rollback", "Rollback selected"),
+        Binding("space", "toggle_selection", "Toggle", show=False),
+    ]
 
     CSS = """
     RollbackScreen {
         layout: vertical;
     }
+    #rollback-hint {
+        margin: 1 2 0 2;
+        color: $text-muted;
+    }
     #rollback-list {
         height: 1fr;
         border: round $warning;
         margin: 1 2;
-    }
-    #rollback-actions {
-        height: 3;
-        margin: 0 2 1 2;
-        layout: horizontal;
     }
     """
 
@@ -787,11 +766,11 @@ class RollbackScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label("[bold yellow]Session Rollback[/] — Select files to restore")
+        yield Label(
+            "[bold yellow]Session Rollback[/]  — Space to select, Ctrl+R to restore, Esc to cancel",
+            id="rollback-hint",
+        )
         yield SelectionList(id="rollback-list")
-        with Horizontal(id="rollback-actions"):
-            yield Button("Rollback selected", id="btn-rollback", variant="error")
-            yield Button("Cancel", id="btn-cancel", variant="default")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -805,8 +784,7 @@ class RollbackScreen(Screen):
             label = f"{entry.rel_path}  [{existed}]  @ {entry.timestamp.strftime('%H:%M:%S')}"
             sl.add_option(Selection(label, entry.rel_path, initial_state=False))
 
-    @on(Button.Pressed, "#btn-rollback")
-    def on_rollback(self) -> None:
+    def action_do_rollback(self) -> None:
         sl: SelectionList = self.query_one("#rollback-list")
         selected_paths = list(sl.selected)
         if not selected_paths:
@@ -840,12 +818,8 @@ class RollbackScreen(Screen):
                     messages.append(f"Failed to delete {rel_path}: {exc}")
 
         summary = "\n".join(messages)
-        self.call_from_thread(self.notify, f"Rollback complete:\n{summary}", timeout=15)
-        self.call_from_thread(self._load_entries)
-
-    @on(Button.Pressed, "#btn-cancel")
-    def on_cancel(self) -> None:
-        self.app.pop_screen()
+        self.app.call_from_thread(self.notify, f"Rollback complete:\n{summary}", timeout=15)
+        self.app.call_from_thread(self._load_entries)
 
 
 # ---------------------------------------------------------------------------
