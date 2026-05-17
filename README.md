@@ -1,57 +1,55 @@
 # Beam
 
-**터미널 UI 기반 SSH/SFTP 파일 배포 도구**
+**Terminal UI tool for SSH/SFTP file deployment**
 
-Beam은 SSH 서버에 파일을 빠르고 안전하게 배포하기 위한 터미널 UI(TUI) 애플리케이션입니다. 마우스 없이 키보드만으로 로컬 파일을 선택해 원격 서버에 업로드하고, 필요 시 이전 상태로 즉시 롤백할 수 있습니다.
-
----
-
-## 주요 기능
-
-- **워크스페이스 관리** — 여러 서버(개발/스테이징/프로덕션 등)를 워크스페이스로 저장하고 전환
-- **사이드-바이-사이드 파일 뷰** — 로컬 파일과 원격 파일을 한 화면에 나란히 표시
-- **Diff 인디케이터** — 로컬 파일에 `+`(신규) / `M`(변경됨) 태그를 실시간으로 표시
-- **다중 파일 선택 배포** — Space로 개별 선택, Ctrl+A로 전체 선택 후 한 번에 업로드
-- **원격 파일 삭제** — 원격 패널에서 파일을 선택해 직접 삭제
-- **세션 롤백** — 배포 전 자동 스냅샷을 찍어 언제든 이전 버전으로 복원 가능
-- **Diff 임계값 경고** — 로컬-원격 파일 구성 차이가 설정 임계값을 초과하면 경고 알림
-- **SSH 키 / 비밀번호 인증** 모두 지원
-- **사용자 정의 포트** — 기본값 22 이외의 포트 설정 가능
+Beam is a TUI application for deploying files to SSH servers quickly and safely. Using only your keyboard, select local files and upload them to a remote server — with instant rollback to any previous state.
 
 ---
 
-## 요구 사항
+## Features
 
-| 항목 | 버전 |
+- **Workspace management** — Save and switch between multiple servers (dev / staging / production, etc.)
+- **Side-by-side file view** — Local and remote files shown in one screen
+- **Diff indicators** — Real-time `+` (new) / `M` (modified) tags on local files
+- **Multi-file deployment** — Select files with Space, select all with Ctrl+A, deploy in one shot
+- **Remote file deletion** — Select files in the remote panel and delete directly
+- **Session rollback** — Automatic snapshot before each deploy; restore any previous version instantly
+- **Diff threshold warning** — Alert when local/remote directory divergence exceeds a configured threshold
+- **SSH key & password auth** — Both authentication methods supported
+- **Custom port** — Configure any port (default: 22)
+
+---
+
+## Requirements
+
+| Item | Version |
 |---|---|
-| Python | 3.9 이상 |
-| pipx | 최신 권장 (설치 스크립트가 자동 처리) |
-| SSH 접근 | 원격 서버에 SFTP 서브시스템이 활성화되어 있어야 함 |
+| Python | 3.9+ |
+| pipx | Latest recommended (install script handles this automatically) |
+| SSH access | Remote server must have the SFTP subsystem enabled |
 
-> **참고**: 원격 서버가 SSH를 통한 SFTP 접속을 허용해야 합니다. 대부분의 Linux 서버에서 기본으로 활성화되어 있습니다.
+> **Note**: The remote server must allow SFTP over SSH. This is enabled by default on most Linux servers.
 
 ---
 
-## 설치 방법
+## Installation
 
-### 방법 1 — 원터치 설치 (권장)
+### Option 1 — One-touch install (recommended)
 
-아래 명령어 한 줄로 설치가 완료됩니다. pipx가 없어도 자동으로 설치해 줍니다.
+Install with a single command. pipx is installed automatically if not present.
 
 ```bash
 curl -s https://raw.githubusercontent.com/woogiekim/beam/main/install.sh | bash
 ```
 
-설치 후 새 셸을 열거나 아래 명령을 실행하면 바로 사용할 수 있습니다:
+After installation, open a new shell or run:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 beam
 ```
 
-### 방법 2 — 로컬 저장소에서 설치
-
-저장소를 직접 클론한 후 설치 스크립트를 실행합니다:
+### Option 2 — Install from local clone
 
 ```bash
 git clone https://github.com/woogiekim/beam.git
@@ -59,13 +57,13 @@ cd beam
 ./install.sh
 ```
 
-### 방법 3 — pip으로 직접 설치
+### Option 3 — Install with pip
 
 ```bash
 pip install -e .
 ```
 
-또는 가상 환경을 직접 관리하는 경우:
+Or with a manually managed virtual environment:
 
 ```bash
 python -m venv .venv
@@ -76,88 +74,88 @@ beam
 
 ---
 
-## 사용법
+## Usage
 
-### 실행
+### Running
 
 ```bash
 beam
 ```
 
-### 기본 워크플로
+### Basic workflow
 
-1. **워크스페이스 선택 화면**이 열립니다.
-2. `Ctrl+N`으로 새 워크스페이스를 추가합니다.
-3. 워크스페이스를 선택하고 `Enter`를 눌러 접속합니다.
-4. 파일 선택 화면에서 로컬(왼쪽)과 원격(오른쪽) 파일을 확인합니다.
-5. 로컬 패널에서 `Space`로 파일을 선택한 후 `Ctrl+U`로 배포합니다.
-6. 배포를 취소하거나 이전 상태로 돌아가려면 `Ctrl+R`로 롤백 패널을 엽니다.
+1. The **workspace selection screen** opens.
+2. Press `Ctrl+N` to add a new workspace.
+3. Select a workspace and press `Enter` to connect.
+4. In the file view, check local (left) and remote (right) files.
+5. In the local panel, select files with `Space`, then press `Ctrl+U` to deploy.
+6. To undo a deployment or restore a previous state, press `Ctrl+R` to open the rollback panel.
 
-### 단축키 목록
+### Keyboard shortcuts
 
-#### 워크스페이스 화면
+#### Workspace screen
 
-| 단축키 | 동작 |
+| Shortcut | Action |
 |---|---|
-| `Ctrl+N` | 워크스페이스 추가 |
-| `Ctrl+E` | 워크스페이스 편집 |
-| `Ctrl+D` | 워크스페이스 삭제 |
-| `Enter` | 워크스페이스 열기 (접속) |
+| `Ctrl+N` | Add workspace |
+| `Ctrl+E` | Edit workspace |
+| `Ctrl+D` | Delete workspace |
+| `Enter` | Open workspace (connect) |
 
-#### 파일 선택 화면
+#### File view screen
 
-| 단축키 | 동작 |
+| Shortcut | Action |
 |---|---|
-| `Space` | 파일 선택/해제 (로컬 또는 원격 패널) |
-| `Ctrl+A` | 로컬 파일 전체 선택 / 전체 해제 |
-| `Ctrl+U` | 선택한 로컬 파일을 원격에 배포 |
-| `Ctrl+D` | 선택한 원격 파일 삭제 (원격 패널 포커스 시) |
-| `Ctrl+R` | 롤백 패널 열기 / 선택 파일 롤백 실행 |
-| `F5` | 파일 목록 새로고침 |
-| `Esc` | 뒤로 가기 / 롤백 패널 닫기 |
-| `Ctrl+Q` | 앱 종료 |
+| `Space` | Select / deselect file (local or remote panel) |
+| `Ctrl+A` | Select all / deselect all local files |
+| `Ctrl+U` | Deploy selected local files to remote |
+| `Ctrl+D` | Delete selected remote files (when remote panel is focused) |
+| `Ctrl+R` | Open rollback panel / execute rollback for selected file |
+| `F5` | Refresh file list |
+| `Esc` | Go back / close rollback panel |
+| `Ctrl+Q` | Quit app |
 
-#### 워크스페이스 폼 화면
+#### Workspace form screen
 
-| 단축키 | 동작 |
+| Shortcut | Action |
 |---|---|
-| `Ctrl+S` | 저장 |
-| `Esc` | 취소 |
+| `Ctrl+S` | Save |
+| `Esc` | Cancel |
 
-### 파일 상태 표시
+### File status indicators
 
-로컬 패널의 각 파일 앞에 상태 태그가 표시됩니다:
+Each file in the local panel is prefixed with a status tag:
 
-| 태그 | 의미 |
+| Tag | Meaning |
 |---|---|
-| `+` (초록) | 원격에 없는 신규 파일 |
-| `M` (노랑) | 원격 파일과 크기가 다른 변경 파일 |
-| (태그 없음) | 원격 파일과 동일 |
+| `+` (green) | New file — not present on remote |
+| `M` (yellow) | Modified — size differs from remote |
+| (none) | In sync with remote |
 
 ---
 
-## 설정
+## Configuration
 
-설정 파일은 `~/.beam/workspaces.json`에 저장됩니다.
-직접 편집하거나 TUI 내에서 워크스페이스를 추가/편집하면 자동으로 업데이트됩니다.
+The config file is stored at `~/.beam/workspaces.json`.  
+Edit it directly, or add/edit workspaces through the TUI — changes are saved automatically.
 
-### 워크스페이스 설정 항목
+### Workspace fields
 
-| 항목 | 필수 | 설명 | 기본값 |
+| Field | Required | Description | Default |
 |---|---|---|---|
-| `name` | 필수 | 워크스페이스 식별 이름 | — |
-| `local_root` | 필수 | 로컬 프로젝트 루트 디렉터리 절대 경로 | — |
-| `host` | 필수 | 원격 서버 호스트명 또는 IP | — |
-| `user` | 필수 | SSH 접속 사용자명 | — |
-| `remote_root` | 필수 | 원격 서버의 배포 대상 절대 경로 (`/`로 시작) | — |
-| `port` | 선택 | SSH 포트 | `22` |
-| `password` | 조건부 | SSH 비밀번호 (`key_path` 없을 때 필수) | — |
-| `key_path` | 조건부 | SSH 개인키 경로 (`password` 없을 때 필수) | — |
-| `diff_threshold` | 선택 | 로컬-원격 파일 구성 차이 경고 임계값 (0.0 ~ 1.0) | `0.30` |
+| `name` | Yes | Workspace display name | — |
+| `local_root` | Yes | Absolute path to local project root | — |
+| `host` | Yes | Remote server hostname or IP | — |
+| `user` | Yes | SSH username | — |
+| `remote_root` | Yes | Absolute path on the remote server (must start with `/`) | — |
+| `port` | No | SSH port | `22` |
+| `password` | Conditional | SSH password (required when `key_path` is not set) | — |
+| `key_path` | Conditional | Path to SSH private key (required when `password` is not set) | — |
+| `diff_threshold` | No | Warning threshold for local/remote divergence (0.0 – 1.0) | `0.30` |
 
-> `password`와 `key_path` 중 하나는 반드시 설정해야 합니다.
+> Either `password` or `key_path` must be provided.
 
-### 설정 파일 예시
+### Example config
 
 ```json
 {
@@ -188,54 +186,52 @@ beam
 }
 ```
 
-### `diff_threshold` 상세 설명
+### `diff_threshold` explained
 
-로컬과 원격 디렉터리 구성의 불일치 비율이 이 값을 초과하면 배포 전 경고 알림이 표시됩니다.
+When the mismatch ratio between local and remote directory contents exceeds this value, a warning is shown before deploying.
 
-- `0.0` — 파일 하나라도 차이가 있으면 경고
-- `0.30` (기본값) — 30% 이상 차이가 나면 경고
-- `1.0` — 경고 비활성화
+- `0.0` — warn if even one file differs
+- `0.30` (default) — warn when more than 30% of files differ
+- `1.0` — disable warnings
 
-실수로 잘못된 디렉터리에 배포하는 것을 방지하는 안전장치입니다.
+This acts as a safety guard against accidentally deploying to the wrong directory.
 
 ---
 
-## 개발 환경 설정
-
-기여하거나 직접 수정하고 싶다면 아래 방법으로 개발 환경을 구성할 수 있습니다.
+## Development setup
 
 ```bash
 git clone https://github.com/woogiekim/beam.git
 cd beam
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"   # dev extras가 있는 경우
+pip install -e ".[dev]"
 beam
 ```
 
-### 프로젝트 구조
+### Project structure
 
 ```
 beam/
 ├── beam/
-│   ├── app.py        # TUI 앱 진입점 및 모든 화면 정의
-│   ├── config.py     # 워크스페이스 설정 로드/저장 (WorkspaceConfig)
-│   ├── diff.py       # 로컬-원격 디렉터리 diff 계산
-│   ├── rollback.py   # 세션 내 롤백 스냅샷 관리
-│   └── sftp.py       # paramiko 기반 SFTP 클라이언트 래퍼
-├── install.sh        # 원터치 설치 스크립트 (pipx 기반)
-└── pyproject.toml    # 패키지 메타데이터 및 의존성
+│   ├── app.py        # TUI app entry point and all screen definitions
+│   ├── config.py     # Workspace config load/save (WorkspaceConfig)
+│   ├── diff.py       # Local/remote directory diff calculation
+│   ├── rollback.py   # Session rollback snapshot management
+│   └── sftp.py       # paramiko-based SFTP client wrapper
+├── install.sh        # One-touch installer (pipx-based)
+└── pyproject.toml    # Package metadata and dependencies
 ```
 
-### 주요 의존성
+### Dependencies
 
-| 패키지 | 용도 |
+| Package | Purpose |
 |---|---|
-| [textual](https://github.com/Textualize/textual) | 터미널 UI 프레임워크 |
-| [paramiko](https://www.paramiko.org/) | SSH/SFTP 클라이언트 |
+| [textual](https://github.com/Textualize/textual) | Terminal UI framework |
+| [paramiko](https://www.paramiko.org/) | SSH/SFTP client |
 
 ---
 
-## 라이선스
+## License
 
-이 프로젝트의 라이선스는 저장소를 확인하세요.
+See the repository for license information.
