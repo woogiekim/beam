@@ -882,6 +882,14 @@ class FileSelectScreen(Screen):
         self._set_conn_state(self._CONN_CONNECTING)
         self._connect_and_load()
 
+    def check_action(self, action: str, parameters: tuple) -> bool | None:
+        focused_id = self.focused.id if self.focused else None
+        if action == "deploy_selected":
+            return focused_id != "remote-list"
+        if action == "delete_remote_selected":
+            return focused_id == "remote-list"
+        return None
+
     def _set_conn_state(self, state: str) -> None:
         """Update the status bar with a new connection state message."""
         self._conn_state = state
