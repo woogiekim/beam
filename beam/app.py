@@ -6,9 +6,24 @@ Provides screens for workspace selection, file multi-select, deployment, and rol
 
 from __future__ import annotations
 
+import datetime
 import os
 from pathlib import Path
 from typing import Optional
+
+
+def _fmt_size(size: int) -> str:
+    if size < 1024:
+        return f"{size:>6} B  "
+    if size < 1024 * 1024:
+        return f"{size/1024:>5.1f} KB "
+    return f"{size/1024/1024:>5.1f} MB "
+
+
+def _fmt_date(mtime: float) -> str:
+    if not mtime:
+        return "           "
+    return datetime.datetime.fromtimestamp(mtime).strftime("%m-%d %H:%M")
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -601,49 +616,96 @@ class FileSelectScreen(Screen):
             )
 
     def _load_file_lists(self) -> None:
-        """Populate local and remote SelectionLists with diff indicators."""
+        """Populate local and remote SelectionLists as tree views with file stats."""
         local_root = Path(self.workspace.local_root).expanduser().resolve()
         local_set: frozenset[str] = build_local_tree(local_root)
 
-        remote_set: frozenset[str] = frozenset()
+        remote_stats: dict[str, tuple[int, float]] = {}
         if self._sftp_client is not None:
             try:
-                remote_list = self._sftp_client.list_remote_tree(
+                remote_stats = self._sftp_client.list_remote_tree_with_stats(
                     self.workspace.remote_root
                 )
-                remote_set = frozenset(remote_list)
             except SFTPError:
                 pass
+        remote_set = frozenset(remote_stats.keys())
 
-        # Build local selections with diff indicators
-        local_selections: list[Selection] = []
-        for rel_path in sorted(local_set):
-            if rel_path not in remote_set:
-                # Local-only file
-                indicator = "[+]"
-            else:
-                # File exists on both sides — compare sizes
-                local_abs = str(local_root / rel_path)
-                local_size = os.path.getsize(local_abs)
-                remote_path = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
-                remote_size: Optional[int] = None
-                if self._sftp_client is not None:
-                    remote_size = self._sftp_client.get_file_size(remote_path)
+        # Collect local stats
+        local_stats: dict[str, tuple[int, float]] = {}
+        for rel_path in local_set:
+            try:
+                st = os.stat(local_root / rel_path)
+                local_stats[rel_path] = (st.st_size, st.st_mtime)
+            except OSError:
+                local_stats[rel_path] = (0, 0.0)
 
-                if remote_size is None or local_size != remote_size:
-                    indicator = "[M]"
-                else:
-                    indicator = "[=]"
-
-            label = f"{indicator} {rel_path}"
-            local_selections.append(
-                Selection(label, rel_path, initial_state=False)
-            )
-
-        remote_paths = sorted(remote_set)
+        local_selections = self._build_tree_selections(
+            paths=sorted(local_set),
+            stats=local_stats,
+            remote_stats=remote_stats,
+            remote_set=remote_set,
+            show_diff=True,
+        )
+        remote_selections = self._build_tree_selections(
+            paths=sorted(remote_set),
+            stats=remote_stats,
+            remote_stats={},
+            remote_set=frozenset(),
+            show_diff=False,
+        )
 
         self.app.call_from_thread(self._update_local_list, local_selections)
-        self.app.call_from_thread(self._update_remote_list, remote_paths)
+        self.app.call_from_thread(self._update_remote_list, remote_selections)
+
+    def _build_tree_selections(
+        self,
+        paths: list[str],
+        stats: dict[str, tuple[int, float]],
+        remote_stats: dict[str, tuple[int, float]],
+        remote_set: frozenset[str],
+        show_diff: bool,
+    ) -> list[Selection]:
+        entries: list[Selection] = []
+        seen_dirs: set[str] = set()
+
+        for rel_path in sorted(paths):
+            parts = rel_path.split("/")
+
+            # Directory headers (disabled — navigate past, not selectable)
+            for depth in range(len(parts) - 1):
+                dir_path = "/".join(parts[: depth + 1])
+                if dir_path not in seen_dirs:
+                    seen_dirs.add(dir_path)
+                    indent = "  " * depth
+                    entries.append(
+                        Selection(
+                            f"{indent}📁 {parts[depth]}/",
+                            f"__dir__:{dir_path}",
+                            initial_state=False,
+                            disabled=True,
+                        )
+                    )
+
+            # File entry
+            indent = "  " * (len(parts) - 1)
+            filename = parts[-1]
+            size, mtime = stats.get(rel_path, (0, 0.0))
+            size_str = _fmt_size(size)
+            date_str = _fmt_date(mtime)
+
+            if show_diff:
+                if rel_path not in remote_set:
+                    tag = "[+]"
+                else:
+                    r_size = remote_stats.get(rel_path, (None,))[0]
+                    tag = "[=]" if r_size == size else "[M]"
+                label = f"{indent}{tag} {filename}  {size_str} {date_str}"
+            else:
+                label = f"{indent}{filename}  {size_str} {date_str}"
+
+            entries.append(Selection(label, rel_path, initial_state=False))
+
+        return entries
 
     def _update_local_list(self, selections: list[Selection]) -> None:
         sl: SelectionList = self.query_one("#local-list")
@@ -651,18 +713,18 @@ class FileSelectScreen(Screen):
         for sel in selections:
             sl.add_option(sel)
 
-    def _update_remote_list(self, paths: list[str]) -> None:
+    def _update_remote_list(self, selections: list[Selection]) -> None:
         sl: SelectionList = self.query_one("#remote-list")
         sl.clear_options()
-        for path in paths:
-            sl.add_option(Selection(path, path, initial_state=False))
+        for sel in selections:
+            sl.add_option(sel)
 
     def action_delete_remote_selected(self) -> None:
         if self._sftp_client is None:
             self.notify("Not connected.", severity="error")
             return
         sl: SelectionList = self.query_one("#remote-list")
-        selected = list(sl.selected)
+        selected = [v for v in sl.selected if not str(v).startswith("__dir__:")]
         if not selected:
             self.notify("No remote files selected. Use Space to select files.", severity="warning")
             return
@@ -685,13 +747,30 @@ class FileSelectScreen(Screen):
         )
         self._load_file_lists()
 
+    @on(SelectionList.SelectionHighlighted, "#local-list")
+    def on_local_highlighted(self, event: SelectionList.SelectionHighlighted) -> None:
+        sel = event.selection
+        if sel is None:
+            return
+        val = str(sel.value)
+        if val.startswith("__dir__:"):
+            return
+        remote_sl: SelectionList = self.query_one("#remote-list")
+        for i, opt in enumerate(remote_sl._options):  # type: ignore[attr-defined]
+            if hasattr(opt, "value") and str(opt.value) == val:
+                remote_sl.highlighted = i
+                break
+
     def action_toggle_all_selection(self) -> None:
-        """Ctrl+A: select all if any are unselected, deselect all if all selected."""
+        """Ctrl+A: select all files if any unselected, deselect all if all selected."""
         sl: SelectionList = self.query_one("#local-list")
-        # Check whether all items are currently selected
-        all_count = len(sl._options)  # type: ignore[attr-defined]
+        selectable = [
+            o for o in sl._options  # type: ignore[attr-defined]
+            if not (hasattr(o, "value") and str(o.value).startswith("__dir__:"))
+            and not getattr(o, "disabled", False)
+        ]
         selected_count = len(list(sl.selected))
-        if all_count > 0 and selected_count == all_count:
+        if len(selectable) > 0 and selected_count == len(selectable):
             sl.deselect_all()
         else:
             sl.select_all()

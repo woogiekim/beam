@@ -206,29 +206,31 @@ class SFTPClient:
             return None
 
     def list_remote_tree(self, remote_root: str, max_files: int = 500) -> list[str]:
-        """Recursively list files under remote_root as POSIX-relative paths.
+        """Recursively list files under remote_root as POSIX-relative paths."""
+        return list(self.list_remote_tree_with_stats(remote_root, max_files).keys())
 
-        Paths are relative to remote_root (e.g. "src/main.py").
-        Hidden files and directories (names starting with ".") are skipped.
-        Listing stops when max_files is reached.
+    def list_remote_tree_with_stats(
+        self, remote_root: str, max_files: int = 500
+    ) -> dict[str, tuple[int, float]]:
+        """Recursively list files with size and mtime under remote_root.
 
         Returns:
-            Sorted list of relative POSIX path strings.
+            Dict mapping relative path → (size_bytes, mtime_epoch).
 
         Raises:
             SFTPError: When remote_root does not exist or cannot be listed.
         """
         sftp = self._require_connected()
-        results: list[str] = []
+        results: dict[str, tuple[int, float]] = {}
         self._walk_remote(sftp, remote_root, remote_root, results, max_files)
-        return sorted(results)
+        return results
 
     def _walk_remote(
         self,
         sftp: paramiko.SFTPClient,
         root: str,
         current: str,
-        results: list[str],
+        results: dict[str, tuple[int, float]],
         max_files: int,
     ) -> None:
         if len(results) >= max_files:
@@ -245,8 +247,7 @@ class SFTPClient:
             if stat.S_ISDIR(entry.st_mode or 0):
                 self._walk_remote(sftp, root, full_path, results, max_files)
             else:
-                # Compute path relative to root
                 rel = full_path[len(root):].lstrip("/")
-                results.append(rel)
+                results[rel] = (entry.st_size or 0, float(entry.st_mtime or 0))
                 if len(results) >= max_files:
                     return
