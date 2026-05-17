@@ -5,6 +5,10 @@
 # No manual venv activation required — pipx handles PATH registration automatically.
 set -euo pipefail
 
+# When piped via `curl | bash` the shell's CWD may be a deleted or inaccessible
+# path. cd to $HOME immediately so every subsequent command has a valid CWD.
+cd "$HOME"
+
 # ---------------------------------------------------------------------------
 # 1. Find a suitable Python interpreter (>= 3.9)
 # ---------------------------------------------------------------------------
