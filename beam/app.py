@@ -1246,6 +1246,7 @@ class FileSelectScreen(Screen):
             f"\n[bold bright_green]  DEPLOYMENT COMPLETE[/]",
         )
         self.app.call_from_thread(self._show_loading, False)
+        self._load_file_lists()
 
     def action_back(self) -> None:
         if self._rollback_panel_visible:
@@ -1355,6 +1356,7 @@ class FileSelectScreen(Screen):
         )
         self.app.call_from_thread(self._show_loading, False)
         self.app.call_from_thread(self._populate_rollback_list)
+        self._load_file_lists()
 
     def action_refresh_files(self) -> None:
         self._set_conn_state(self._CONN_LOADING)
