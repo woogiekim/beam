@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 
 def _fmt_size(size: int) -> str:
@@ -345,6 +345,76 @@ class DeleteConfirmScreen(Screen):
             f"Workspace '{self.workspace_name}' deleted.",
             severity="warning",
         )
+        self.app.pop_screen()
+
+
+# ---------------------------------------------------------------------------
+# Generic remote-action confirmation screen
+# ---------------------------------------------------------------------------
+
+
+class ConfirmScreen(Screen):
+    """Generic confirmation dialog before executing a remote-affecting action.
+
+    Shows a title and a body message, then waits for Enter (confirm) or Esc
+    (cancel).  On confirmation the *on_confirm* callable is invoked and the
+    screen is dismissed.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "confirm", "Confirm", priority=True),
+    ]
+
+    CSS = """
+    ConfirmScreen {
+        layout: vertical;
+        align: center middle;
+        background: #0a0a0f;
+    }
+    #remote-confirm-box {
+        width: 70;
+        height: auto;
+        border: round #ff3355;
+        padding: 2 4;
+        background: #0f0f1a;
+    }
+    #remote-confirm-title {
+        color: #ff3355;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #remote-confirm-body {
+        color: #c8d8e8;
+        margin-bottom: 1;
+    }
+    #remote-confirm-hint {
+        color: #4a5a6a;
+    }
+    """
+
+    def __init__(self, title: str, message: str, on_confirm: "Callable[[], None]") -> None:
+        super().__init__()
+        self._title = title
+        self._message = message
+        self._on_confirm = on_confirm
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Container(id="remote-confirm-box"):
+            yield Label(self._title, id="remote-confirm-title")
+            yield Label(self._message, id="remote-confirm-body")
+            yield Label(
+                "Press [bold]Enter[/] to confirm  or  [bold]Esc[/] to cancel.",
+                id="remote-confirm-hint",
+            )
+        yield Footer()
+
+    def action_confirm(self) -> None:
+        self.app.pop_screen()
+        self._on_confirm()
+
+    def action_cancel(self) -> None:
         self.app.pop_screen()
 
 
@@ -811,7 +881,19 @@ class FileSelectScreen(Screen):
         if not selected:
             self.notify("No remote files selected. Use Space to select files.", severity="warning")
             return
-        self._run_delete_remote(selected)
+        # Show confirmation before deleting remote files
+        file_list = ", ".join(str(v) for v in selected[:3])
+        if len(selected) > 3:
+            file_list += f", … (+{len(selected) - 3} more)"
+        message = (
+            f"Permanently delete [bold]{len(selected)}[/] remote file(s) from "
+            f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]?\n\n"
+            f"Files: {file_list}\n\n"
+            f"[bold red]This cannot be undone.[/]"
+        )
+        self.app.push_screen(
+            ConfirmScreen("Delete remote files", message, lambda: self._run_delete_remote(selected))
+        )
 
     @work(thread=True)
     def _run_delete_remote(self, rel_paths: list[str]) -> None:
@@ -892,12 +974,24 @@ class FileSelectScreen(Screen):
         if not selected:
             self.notify("No files selected. Use Space to select files.", severity="warning")
             return
-        # Inline deploy — clear log and show panel
-        self._deploy_log_lines = []
-        log_widget: Static = self.query_one("#deploy-log")
-        log_widget.update("")
-        log_widget.display = True
-        self._run_deploy(selected)
+        # Show confirmation before deploying
+        file_list = ", ".join(selected[:3])
+        if len(selected) > 3:
+            file_list += f", … (+{len(selected) - 3} more)"
+        message = (
+            f"Deploy [bold]{len(selected)}[/] file(s) to "
+            f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]?\n\n"
+            f"Files: {file_list}"
+        )
+
+        def _do_deploy() -> None:
+            self._deploy_log_lines = []
+            log_widget: Static = self.query_one("#deploy-log")
+            log_widget.update("")
+            log_widget.display = True
+            self._run_deploy(selected)
+
+        self.app.push_screen(ConfirmScreen("Deploy to remote", message, _do_deploy))
 
     def _append_deploy_log(self, line: str) -> None:
         self._deploy_log_lines.append(line)
@@ -966,9 +1060,23 @@ class FileSelectScreen(Screen):
                 self.query_one("#rollback-panel").display = False
                 self._rollback_panel_visible = False
             else:
-                self._rollback_log_lines = []
-                self.query_one("#rollback-result", Static).update("")
-                self._run_rollback(selected)
+                # Show confirmation before rolling back
+                file_list = ", ".join(selected[:3])
+                if len(selected) > 3:
+                    file_list += f", … (+{len(selected) - 3} more)"
+                message = (
+                    f"Restore [bold]{len(selected)}[/] file(s) on "
+                    f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/] "
+                    f"to their pre-deploy snapshots?\n\n"
+                    f"Files: {file_list}"
+                )
+
+                def _do_rollback() -> None:
+                    self._rollback_log_lines = []
+                    self.query_one("#rollback-result", Static).update("")
+                    self._run_rollback(selected)
+
+                self.app.push_screen(ConfirmScreen("Rollback remote files", message, _do_rollback))
 
     def _populate_rollback_list(self) -> None:
         sl: SelectionList = self.query_one("#rollback-list")
