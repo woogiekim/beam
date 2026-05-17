@@ -271,12 +271,11 @@ class WorkspaceFormScreen(Screen):
 
 
 class DeleteConfirmScreen(Screen):
-    """Y/N confirmation dialog before deleting a workspace."""
+    """Confirmation dialog before deleting a workspace."""
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Cancel"),
-        Binding("y", "confirm_delete", "Yes — delete"),
-        Binding("n", "app.pop_screen", "No — cancel"),
+        Binding("enter", "confirm_delete", "Yes — delete"),
     ]
 
     CSS = """
@@ -305,7 +304,7 @@ class DeleteConfirmScreen(Screen):
                 f"[bold red]Delete workspace?[/]\n\n"
                 f"Workspace:  [bold]{self.workspace_name}[/]\n\n"
                 f"This cannot be undone.\n\n"
-                f"Press [bold]Y[/] to delete  or  [bold]N[/] / Esc to cancel.",
+                f"Press [bold]Enter[/] to delete  or  Esc to cancel.",
             )
         yield Footer()
 
@@ -331,9 +330,9 @@ class WorkspaceScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
-        Binding("a", "add_workspace", "Add"),
-        Binding("e", "edit_workspace", "Edit"),
-        Binding("d", "delete_workspace", "Delete"),
+        Binding("ctrl+n", "add_workspace", "Add"),
+        Binding("ctrl+e", "edit_workspace", "Edit"),
+        Binding("ctrl+d", "delete_workspace", "Delete"),
         Binding("enter", "select_workspace", "Open", show=False),
     ]
 
@@ -371,7 +370,7 @@ class WorkspaceScreen(Screen):
         lv.clear()
         workspaces = self.config.list()
         if not workspaces:
-            lv.append(ListItem(Label("  (no workspaces configured — press A to add)")))
+            lv.append(ListItem(Label("  (no workspaces configured — press Ctrl+N to add)")))
             return
         for ws in workspaces:
             auth = f"key: {ws.key_path}" if ws.key_path else "password"
@@ -442,8 +441,8 @@ class FileSelectScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
-        Binding("d", "deploy_selected", "Deploy"),
-        Binding("r", "show_rollback", "Rollback"),
+        Binding("ctrl+d", "deploy_selected", "Deploy"),
+        Binding("ctrl+r", "show_rollback", "Rollback"),
         Binding("space", "toggle_selection", "Toggle", show=False),
         Binding("f5", "refresh_files", "Refresh"),
     ]
