@@ -645,7 +645,7 @@ class WorkspaceScreen(Screen):
 # Diff tag styles — used in _build_tree_selections
 _DIFF_TAG_NEW      = "[bold black on #39ff14] + [/] "   # neon-green badge
 _DIFF_TAG_MATCH    = "[#1e2a1e] · [/] "                  # near-invisible dim dot
-_DIFF_TAG_MODIFIED = "[bold black on #ff9500] ~ [/] "   # amber badge
+_DIFF_TAG_MODIFIED = "[bold #ff9500] ~ [/] "            # amber text
 
 
 class FileSelectScreen(Screen):
