@@ -643,9 +643,9 @@ class WorkspaceScreen(Screen):
 # ---------------------------------------------------------------------------
 
 # Diff tag styles — used in _build_tree_selections
-_DIFF_TAG_NEW      = "[bold bright_green][+][/]"  # new local file
-_DIFF_TAG_MATCH    = "[dim][=][/]"                # same size as remote
-_DIFF_TAG_MODIFIED = "[bold bright_yellow][M][/]"  # different size from remote
+_DIFF_TAG_NEW      = "[bold #39ff14]  ✦ [/]"   # new local file
+_DIFF_TAG_MATCH    = "[dim #2a3a4a]  · [/]"     # same as remote
+_DIFF_TAG_MODIFIED = "[bold #ff9500]  ✎ [/]"   # different from remote
 
 
 class FileSelectScreen(Screen):
