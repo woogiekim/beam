@@ -25,10 +25,11 @@ def _fmt_date(mtime: float) -> str:
         return "           "
     return datetime.datetime.fromtimestamp(mtime).strftime("%m-%d %H:%M")
 
+
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
     Button,
@@ -38,6 +39,7 @@ from textual.widgets import (
     Label,
     ListItem,
     ListView,
+    LoadingIndicator,
     SelectionList,
     Static,
 )
@@ -47,6 +49,30 @@ from .config import Workspace, WorkspaceConfig
 from .diff import build_local_tree, compute_diff
 from .rollback import RollbackSession
 from .sftp import SFTPClient, SFTPError
+
+
+# ---------------------------------------------------------------------------
+# Shared color tokens
+# ---------------------------------------------------------------------------
+#
+#  Background layers
+#    VOID      #020207   deepest background — space black
+#    SURFACE   #07070f   panel / widget surface
+#    RAISED    #0d0d1c   slightly raised surface (input fields, inner boxes)
+#
+#  Accent palette
+#    CYAN      #00ffff   primary accent — pure electric cyan
+#    MAGENTA   #ff00ff   secondary accent — hot magenta
+#    GREEN     #39ff14   success / neon green
+#    AMBER     #ff9500   warning / warm amber
+#    RED       #ff0040   danger / hot red
+#
+#  Text
+#    TEXT_HI   #d0e8f8   primary text (cool white-blue)
+#    TEXT_MID  #6080a0   secondary / muted text
+#    TEXT_LO   #2a3a4a   very dim (disabled, placeholders)
+#
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +95,11 @@ class WorkspaceFormScreen(Screen):
     CSS = """
     WorkspaceFormScreen {
         layout: vertical;
-        background: #0a0a0f;
+        background: #020207;
+    }
+    #form-title {
+        margin: 1 2 0 2;
+        color: #00ffff;
     }
     #form-scroll {
         height: 1fr;
@@ -78,30 +108,36 @@ class WorkspaceFormScreen(Screen):
     #form-inner {
         margin: 1 4;
         height: auto;
-        background: #0f0f1a;
-        border: round #00e5ff;
+        background: #07070f;
+        border: heavy #00ffff;
+        border-title-color: #00ffff;
+        border-title-style: bold;
         padding: 1 2;
     }
     .field-label {
         margin-top: 1;
-        color: #4a5a6a;
+        color: #6080a0;
     }
     .required-label {
         margin-top: 1;
-        color: #00e5ff;
+        color: #00ffff;
     }
     #form-error {
         margin: 0 4;
-        color: #ff3355;
+        color: #ff0040;
         height: auto;
     }
     Input {
-        background: #0f0f1a;
-        border: round #4a5a6a;
-        color: #c8d8e8;
+        background: #0d0d1c;
+        border: round #2a3a4a;
+        color: #d0e8f8;
     }
     Input:focus {
-        border: round #00e5ff;
+        border: round #00ffff;
+        color: #ffffff;
+    }
+    Input.-invalid {
+        border: round #ff0040;
     }
     """
 
@@ -119,23 +155,26 @@ class WorkspaceFormScreen(Screen):
         ws = self.workspace
         mode = "Edit Workspace" if ws else "Add Workspace"
         yield Header()
-        yield Label(f"[bold]{mode}[/]  — [dim]Ctrl+S to save, Esc to cancel[/]", id="form-title")
+        yield Label(
+            f"[bold bright_cyan]{mode}[/]  [dim]Ctrl+S save  ·  Esc cancel[/]",
+            id="form-title",
+        )
         yield Static("", id="form-error")
         with Container(id="form-scroll"):
             with Container(id="form-inner"):
-                yield Label("Name *", classes="required-label")
+                yield Label("Name [bold bright_cyan]*[/]", classes="required-label")
                 yield Input(
                     value=ws.name if ws else "",
                     placeholder="e.g. production",
                     id="inp-name",
                 )
-                yield Label("Local root *", classes="required-label")
+                yield Label("Local root [bold bright_cyan]*[/]", classes="required-label")
                 yield Input(
                     value=ws.local_root if ws else "",
                     placeholder="/home/me/myproject",
                     id="inp-local-root",
                 )
-                yield Label("Host *", classes="required-label")
+                yield Label("Host [bold bright_cyan]*[/]", classes="required-label")
                 yield Input(
                     value=ws.host if ws else "",
                     placeholder="server.example.com",
@@ -147,7 +186,7 @@ class WorkspaceFormScreen(Screen):
                     placeholder="22",
                     id="inp-port",
                 )
-                yield Label("User *", classes="required-label")
+                yield Label("User [bold bright_cyan]*[/]", classes="required-label")
                 yield Input(
                     value=ws.user if ws else "",
                     placeholder="deploy",
@@ -172,7 +211,7 @@ class WorkspaceFormScreen(Screen):
                     placeholder="~/.ssh/id_rsa",
                     id="inp-key-path",
                 )
-                yield Label("Remote root *", classes="required-label")
+                yield Label("Remote root [bold bright_cyan]*[/]", classes="required-label")
                 yield Input(
                     value=ws.remote_root if ws else "",
                     placeholder="/var/www/myproject",
@@ -190,7 +229,9 @@ class WorkspaceFormScreen(Screen):
         yield Footer()
 
     def _show_error(self, msg: str) -> None:
-        self.query_one("#form-error", Static).update(f"[bold red]Error:[/] {msg}")
+        self.query_one("#form-error", Static).update(
+            f"[bold bright_red]  ERROR:[/] {msg}"
+        )
 
     def _clear_error(self) -> None:
         self.query_one("#form-error", Static).update("")
@@ -288,7 +329,10 @@ class WorkspaceFormScreen(Screen):
 
         self.config.add(workspace)  # add() calls save() internally
         mode = "updated" if self.workspace else "added"
-        self.notify(f"Workspace '{workspace.name}' {mode}.", severity="information")
+        self.notify(
+            f"Workspace [bold bright_cyan]{workspace.name}[/] {mode}.",
+            severity="information",
+        )
         self.app.pop_screen()
 
 
@@ -309,14 +353,16 @@ class DeleteConfirmScreen(Screen):
     DeleteConfirmScreen {
         layout: vertical;
         align: center middle;
-        background: #0a0a0f;
+        background: #020207;
     }
     #confirm-box {
-        width: 60;
+        width: 64;
         height: auto;
-        border: round #ff3355;
+        border: heavy #ff0040;
+        border-title-color: #ff0040;
+        border-title-style: bold;
         padding: 2 4;
-        background: #0f0f1a;
+        background: #0d0007;
     }
     """
 
@@ -329,10 +375,10 @@ class DeleteConfirmScreen(Screen):
         yield Header()
         with Container(id="confirm-box"):
             yield Label(
-                f"[bold red]Delete workspace?[/]\n\n"
-                f"Workspace:  [bold]{self.workspace_name}[/]\n\n"
-                f"This cannot be undone.\n\n"
-                f"Press [bold]Enter[/] to delete  or  Esc to cancel.",
+                f"[bold bright_red]  DELETE WORKSPACE[/]\n\n"
+                f"  Name:  [bold bright_cyan]{self.workspace_name}[/]\n\n"
+                f"  [dim]This action cannot be undone.[/]\n\n"
+                f"  [bold]Enter[/] to confirm  ·  [bold]Esc[/] to cancel",
             )
         yield Footer()
 
@@ -342,7 +388,7 @@ class DeleteConfirmScreen(Screen):
     def _do_delete(self) -> None:
         self.config.delete(self.workspace_name)
         self.notify(
-            f"Workspace '{self.workspace_name}' deleted.",
+            f"Workspace [bold]{self.workspace_name}[/] deleted.",
             severity="warning",
         )
         self.app.pop_screen()
@@ -436,17 +482,29 @@ class WorkspaceScreen(Screen):
     CSS = """
     WorkspaceScreen {
         layout: vertical;
-        background: #0a0a0f;
+        background: #020207;
+    }
+    #workspace-header {
+        height: 3;
+        margin: 1 2 0 2;
+        padding: 0 2;
+        background: #07070f;
+        border: heavy #00ffff;
+        border-title-color: #00ffff;
+        border-title-style: bold;
+        color: #d0e8f8;
+        content-align: left middle;
     }
     #workspace-list {
         height: 1fr;
-        border: round #00e5ff;
+        border: round #00ffff;
         margin: 1 2;
-        background: #0f0f1a;
+        background: #07070f;
     }
     #workspace-hint {
-        margin: 1 2 0 2;
-        color: #4a5a6a;
+        margin: 0 2 1 2;
+        color: #6080a0;
+        height: 1;
     }
     """
 
@@ -457,8 +515,16 @@ class WorkspaceScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label("Select a workspace and press Enter to open it.", id="workspace-hint")
+        yield Static(
+            "[bold bright_cyan]WORKSPACES[/]  "
+            "[dim]Ctrl+N add  ·  Ctrl+E edit  ·  Ctrl+D delete  ·  Enter open[/]",
+            id="workspace-header",
+        )
         yield ListView(id="workspace-list")
+        yield Static(
+            "[dim]Select a workspace and press [bold]Enter[/] to connect[/]",
+            id="workspace-hint",
+        )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -469,7 +535,13 @@ class WorkspaceScreen(Screen):
         lv.clear()
         workspaces = self.config.list()
         if not workspaces:
-            lv.append(ListItem(Label("  (no workspaces configured — press Ctrl+N to add)")))
+            lv.append(
+                ListItem(
+                    Label(
+                        "  [dim](no workspaces configured — press [bold bright_cyan]Ctrl+N[/] to add)[/]"
+                    )
+                )
+            )
             return
         for ws in workspaces:
             auth = f"key: {ws.key_path}" if ws.key_path else "password"
@@ -477,9 +549,11 @@ class WorkspaceScreen(Screen):
             lv.append(
                 ListItem(
                     Label(
-                        f"[bold]{ws.name}[/]  "
-                        f"{ws.user}@{ws.host}{port_info}:{ws.remote_root}"
-                        f"  [{auth}]  local: {ws.local_root}"
+                        f"  [bold bright_cyan]{ws.name}[/]"
+                        f"  [dim]║[/]  "
+                        f"[bright_white]{ws.user}@{ws.host}{port_info}[/]"
+                        f"  [dim]→[/]  [#6080a0]{ws.remote_root}[/]"
+                        f"  [dim]·  local: {ws.local_root}  ·  {auth}[/]"
                     )
                 )
             )
@@ -534,6 +608,11 @@ class WorkspaceScreen(Screen):
 # File selection screen
 # ---------------------------------------------------------------------------
 
+# Diff tag styles — used in _build_tree_selections
+_DIFF_TAG_NEW      = "[bold bright_green][+][/]"  # new local file
+_DIFF_TAG_MATCH    = "[dim][=][/]"                # same size as remote
+_DIFF_TAG_MODIFIED = "[bold bright_yellow][M][/]"  # different size from remote
+
 
 class FileSelectScreen(Screen):
     """Screen showing local and remote workspace files in a side-by-side split."""
@@ -551,37 +630,57 @@ class FileSelectScreen(Screen):
     CSS = """
     FileSelectScreen {
         layout: vertical;
-        background: #0a0a0f;
+        background: #020207;
     }
+
+    /* ── Top info bar ─────────────────────────────────────────── */
     #info-bar {
         height: 3;
         margin: 1 2 0 2;
-        padding: 0 1;
-        background: #0f0f1a;
-        border: round #4a5a6a;
-        color: #c8d8e8;
+        padding: 0 2;
+        background: #07070f;
+        border: heavy #00ffff;
+        border-title-color: #00ffff;
+        border-title-style: bold;
+        color: #d0e8f8;
+        content-align: left middle;
     }
+
+    /* ── Status bar (connection + selection state) ────────────── */
+    #status-bar {
+        height: 1;
+        margin: 0 2;
+        padding: 0 2;
+        background: #07070f;
+        color: #6080a0;
+    }
+
+    /* ── Side-by-side file panels ─────────────────────────────── */
     #panels {
         height: 1fr;
-        margin: 1 2;
+        margin: 1 2 0 2;
     }
     #local-panel {
         width: 1fr;
-        border: round #00e5ff;
-        background: #0f0f1a;
+        border: heavy #00ffff;
+        border-title-color: #00ffff;
+        border-title-style: bold;
+        background: #07070f;
     }
     #remote-panel {
         width: 1fr;
-        border: round #00ff88;
+        border: heavy #ff00ff;
+        border-title-color: #ff00ff;
+        border-title-style: bold;
         margin-left: 1;
-        background: #0f0f1a;
+        background: #07070f;
     }
     .panel-header {
-        height: 1;
-        background: #0a0a0f;
-        color: #c8d8e8;
-        padding: 0 1;
-        text-align: center;
+        height: 2;
+        background: #020207;
+        color: #d0e8f8;
+        padding: 0 2;
+        content-align: left middle;
     }
     #local-list {
         height: 1fr;
@@ -589,27 +688,37 @@ class FileSelectScreen(Screen):
     #remote-list {
         height: 1fr;
     }
+
+    /* ── Deploy log panel ─────────────────────────────────────── */
     #deploy-log {
-        height: 8;
-        border: round #00ff88;
-        margin: 0 2 0 2;
+        height: 9;
+        border: double #39ff14;
+        border-title-color: #39ff14;
+        border-title-style: bold;
+        margin: 1 2 0 2;
         overflow-y: scroll;
-        background: #050508;
-        color: #00ff88;
+        background: #020a02;
+        color: #39ff14;
+        padding: 0 1;
         display: none;
     }
+
+    /* ── Loading indicator (shown during SFTP ops) ────────────── */
+    #loading-indicator {
+        height: 1;
+        margin: 0 2;
+        display: none;
+    }
+
+    /* ── Rollback panel ───────────────────────────────────────── */
     #rollback-panel {
         height: 12;
-        border: round #ffaa00;
-        margin: 0 2 1 2;
-        background: #0f0a00;
+        border: heavy #ff9500;
+        border-title-color: #ff9500;
+        border-title-style: bold;
+        margin: 1 2 1 2;
+        background: #0a0600;
         display: none;
-    }
-    #rollback-panel-header {
-        height: 1;
-        background: #1a1000;
-        color: #ffaa00;
-        padding: 0 1;
     }
     #rollback-list {
         height: 1fr;
@@ -617,12 +726,19 @@ class FileSelectScreen(Screen):
     #rollback-result {
         height: 3;
         background: #050300;
-        color: #ffaa00;
+        color: #ff9500;
         overflow-y: scroll;
-        border-top: solid #3a2800;
+        border-top: solid #2a1800;
         padding: 0 1;
     }
     """
+
+    # Connection state labels — shown in status bar
+    _CONN_IDLE        = "[dim]○  not connected[/]"
+    _CONN_CONNECTING  = "[bold bright_cyan]◌  connecting...[/]"
+    _CONN_CONNECTED   = "[bold bright_green]●  connected[/]"
+    _CONN_ERROR       = "[bold bright_red]✗  connection error[/]"
+    _CONN_LOADING     = "[bold bright_cyan]⟳  loading files...[/]"
 
     def __init__(self, workspace: Workspace, session: RollbackSession) -> None:
         super().__init__()
@@ -633,66 +749,117 @@ class FileSelectScreen(Screen):
         self._deploy_log_lines: list[str] = []
         self._rollback_log_lines: list[str] = []
         self._rollback_panel_visible = False
+        self._conn_state = self._CONN_IDLE
+        self._selected_count = 0
+        self._total_count = 0
 
     def compose(self) -> ComposeResult:
+        ws = self.workspace
+        port_info = f":{ws.port}" if ws.port != 22 else ""
         yield Header()
-        with Container(id="info-bar"):
-            yield Label(
-                f"[bold]{self.workspace.name}[/]  "
-                f"{self.workspace.user}@{self.workspace.host}:{self.workspace.remote_root}  "
-                f"→ local: {self.workspace.local_root}"
-            )
+        # Connection info bar
+        yield Static(
+            f"[bold bright_cyan]{ws.name}[/]"
+            f"  [dim]║[/]  "
+            f"[bright_white]{ws.user}@{ws.host}{port_info}[/]"
+            f"  [dim]→[/]  [#6080a0]{ws.remote_root}[/]"
+            f"  [dim]·  local: {ws.local_root}[/]",
+            id="info-bar",
+        )
+        # Status bar
+        yield Static(self._CONN_IDLE, id="status-bar")
+        # File panels
         with Horizontal(id="panels"):
             with Container(id="local-panel"):
                 yield Label(
-                    "[bold #00e5ff]Local[/]  [dim](Space to select, Ctrl+A all, Ctrl+D deploy)[/]",
+                    "[bold bright_cyan]  LOCAL[/]"
+                    "  [dim]Space select  ·  Ctrl+A all/none  ·  Ctrl+D deploy[/]",
                     classes="panel-header",
                 )
                 yield SelectionList(id="local-list")
             with Container(id="remote-panel"):
                 yield Label(
-                    "[bold #00ff88]Remote[/]  [dim](Space to select, Ctrl+X to delete)[/]",
+                    "[bold bright_magenta]  REMOTE[/]"
+                    "  [dim]Space select  ·  Ctrl+X delete[/]",
                     classes="panel-header",
                 )
                 yield SelectionList(id="remote-list")
+        # Loading indicator
+        yield LoadingIndicator(id="loading-indicator")
+        # Deploy log
         yield Static(id="deploy-log")
+        # Rollback panel
         with Container(id="rollback-panel"):
             yield Label(
-                "[bold #ffaa00]Rollback[/]  [dim]Space to select, Ctrl+R to restore, Esc to close[/]",
-                id="rollback-panel-header",
+                "[bold bright_yellow]  ROLLBACK[/]  "
+                "[dim]Space select  ·  Ctrl+R restore  ·  Esc close[/]",
+                classes="panel-header",
             )
             yield SelectionList(id="rollback-list")
             yield Static(id="rollback-result")
         yield Footer()
 
     def on_mount(self) -> None:
+        self._set_conn_state(self._CONN_CONNECTING)
         self._connect_and_load()
+
+    def _set_conn_state(self, state: str) -> None:
+        """Update the status bar with a new connection state message."""
+        self._conn_state = state
+        self._update_status_bar()
+
+    def _update_status_bar(self) -> None:
+        """Redraw the status bar with current state + selection count."""
+        sel_info = ""
+        if self._total_count > 0:
+            sel_info = (
+                f"  [dim]║[/]  "
+                f"[bold bright_cyan]{self._selected_count}[/]"
+                f"[dim] / {self._total_count} selected[/]"
+            )
+        try:
+            self.query_one("#status-bar", Static).update(
+                f"  {self._conn_state}{sel_info}"
+            )
+        except Exception:
+            pass
+
+    def _show_loading(self, visible: bool) -> None:
+        """Show or hide the loading indicator."""
+        try:
+            indicator = self.query_one("#loading-indicator", LoadingIndicator)
+            indicator.display = visible
+        except Exception:
+            pass
 
     @work(thread=True)
     def _connect_and_load(self) -> None:
         """Connect to SFTP and load file lists (runs in background thread)."""
-        self.app.call_from_thread(
-            self.notify, f"Connecting to {self.workspace.host}...", timeout=3
-        )
+        self.app.call_from_thread(self._show_loading, True)
         client = SFTPClient()
         try:
             client.connect(self.workspace)
         except SFTPError as exc:
+            self.app.call_from_thread(self._show_loading, False)
+            self.app.call_from_thread(self._set_conn_state, self._CONN_ERROR)
             self.app.call_from_thread(
                 self.notify,
-                f"Connection failed: {exc}",
+                f"[bold bright_red]Connection failed:[/] {exc}",
                 severity="error",
                 timeout=10,
             )
             return
 
         self._sftp_client = client
+        self.app.call_from_thread(self._set_conn_state, self._CONN_LOADING)
 
         if not self._diff_checked:
             self._diff_checked = True
             self._check_diff()
 
         self._load_file_lists()
+        self.app.call_from_thread(self._show_loading, False)
+        self.app.call_from_thread(self._set_conn_state, self._CONN_CONNECTED)
 
     def _check_diff(self) -> None:
         """Compare local vs remote trees; warn if threshold exceeded."""
@@ -711,8 +878,8 @@ class FileSelectScreen(Screen):
             threshold_pct = int(self.workspace.diff_threshold * 100)
             self.app.call_from_thread(
                 self.notify,
-                f"[bold yellow]Directory diff warning:[/] {diff.summary()}\n"
-                f"Mismatch exceeds {threshold_pct}% threshold. "
+                f"[bold bright_yellow]  Directory diff warning:[/] {diff.summary()}\n"
+                f"  Mismatch exceeds [bold]{threshold_pct}%[/] threshold. "
                 "Review before deploying.",
                 severity="warning",
                 timeout=15,
@@ -789,6 +956,15 @@ class FileSelectScreen(Screen):
 
         self.app.call_from_thread(self._update_local_list, local_selections)
         self.app.call_from_thread(self._update_remote_list, remote_selections)
+        # Update total count for status bar
+        selectable = sum(
+            1
+            for s in local_selections
+            if not getattr(s, "disabled", False)
+            and not str(getattr(s, "value", "")).startswith("__dir__:")
+        )
+        self._total_count = selectable
+        self.app.call_from_thread(self._update_status_bar)
 
     def _build_tree_selections(
         self,
@@ -813,7 +989,7 @@ class FileSelectScreen(Screen):
                     indent = "  " * depth
                     entries.append(
                         Selection(
-                            f"{indent}📁 {parts[depth]}/",
+                            f"{indent}[bold #6080a0]  {parts[depth]}/[/]",
                             f"__dir__:{dir_path}",
                             initial_state=False,
                             disabled=True,
@@ -829,18 +1005,17 @@ class FileSelectScreen(Screen):
 
             if show_diff:
                 if rel_path not in remote_set:
-                    tag = "[+]"
+                    tag = _DIFF_TAG_NEW
                 else:
                     r_size = remote_stats.get(rel_path, (None,))[0]
-                    tag = "[=]" if r_size == size else "[M]"
-                label = f"{indent}{tag} {filename}  {size_str} {date_str}"
+                    tag = _DIFF_TAG_MATCH if r_size == size else _DIFF_TAG_MODIFIED
+                label = f"{indent}{tag} [#d0e8f8]{filename}[/]  [dim]{size_str} {date_str}[/]"
             else:
-                label = f"{indent}{filename}  {size_str} {date_str}"
+                label = f"{indent}[#d0e8f8]{filename}[/]  [dim]{size_str} {date_str}[/]"
 
             entries.append(Selection(label, rel_path, initial_state=False))
 
         # Add empty directory entries that haven't already been added as headers
-        # Sort them so parent dirs appear before their children
         for dir_path in sorted(empty_dirs):
             if dir_path in seen_dirs:
                 continue
@@ -851,7 +1026,7 @@ class FileSelectScreen(Screen):
             indent = "  " * depth
             entries.append(
                 Selection(
-                    f"{indent}📁 {dirname}/",
+                    f"{indent}[bold #6080a0]  {dirname}/[/]",
                     f"__dir__:{dir_path}",
                     initial_state=False,
                     disabled=True,
@@ -879,7 +1054,10 @@ class FileSelectScreen(Screen):
         sl: SelectionList = self.query_one("#remote-list")
         selected = [v for v in sl.selected if not str(v).startswith("__dir__:")]
         if not selected:
-            self.notify("No remote files selected. Use Space to select files.", severity="warning")
+            self.notify(
+                "No remote files selected. Use [bold]Space[/] to select files.",
+                severity="warning",
+            )
             return
         # Show confirmation before deleting remote files
         file_list = ", ".join(str(v) for v in selected[:3])
@@ -898,15 +1076,17 @@ class FileSelectScreen(Screen):
     @work(thread=True)
     def _run_delete_remote(self, rel_paths: list[str]) -> None:
         assert self._sftp_client is not None
+        self.app.call_from_thread(self._show_loading, True)
         results: list[str] = []
         for rel_path in rel_paths:
             remote_abs = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
             try:
                 self._sftp_client.delete_remote_file(remote_abs)
-                results.append(f"Deleted: {rel_path}")
+                results.append(f"[bright_green]  Deleted:[/] {rel_path}")
             except SFTPError as exc:
-                results.append(f"Failed {rel_path}: {exc}")
+                results.append(f"[bright_red]  Failed  {rel_path}:[/] {exc}")
         summary = "\n".join(results)
+        self.app.call_from_thread(self._show_loading, False)
         self.app.call_from_thread(
             self.notify, f"Remote delete complete:\n{summary}", timeout=10
         )
@@ -925,6 +1105,19 @@ class FileSelectScreen(Screen):
             if hasattr(opt, "value") and str(opt.value) == val:
                 remote_sl.highlighted = i
                 break
+
+    @on(SelectionList.SelectionChanged, "#local-list")
+    def on_local_selection_changed(
+        self, event: SelectionList.SelectionChanged
+    ) -> None:
+        """Update selected count in status bar."""
+        sl = self.query_one("#local-list", SelectionList)
+        self._selected_count = sum(
+            1
+            for v in sl.selected
+            if v is not None and not str(v).startswith("__dir__:")
+        )
+        self._update_status_bar()
 
     def action_toggle_selection(self) -> None:
         """Space: toggle the highlighted item, but never toggle directory headers."""
@@ -972,7 +1165,10 @@ class FileSelectScreen(Screen):
         sl: SelectionList = self.query_one("#local-list")
         selected = list(sl.selected)
         if not selected:
-            self.notify("No files selected. Use Space to select files.", severity="warning")
+            self.notify(
+                "No files selected. Use [bold]Space[/] to select files.",
+                severity="warning",
+            )
             return
         # Show confirmation before deploying
         file_list = ", ".join(selected[:3])
@@ -1004,34 +1200,52 @@ class FileSelectScreen(Screen):
         """Upload selected files inline, appending progress to the deploy-log panel."""
         assert self._sftp_client is not None
         local_root = Path(self.workspace.local_root).expanduser().resolve()
+        self.app.call_from_thread(self._show_loading, True)
+        self.app.call_from_thread(
+            self._append_deploy_log,
+            f"[bold bright_cyan]  DEPLOY[/]  {len(selected_paths)} file(s)  "
+            f"[dim]→ {self.workspace.remote_root}[/]",
+        )
+        self.app.call_from_thread(self._append_deploy_log, "")
 
         for rel_path in selected_paths:
             local_abs = str(local_root / rel_path)
             remote_abs = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
 
-            self.app.call_from_thread(self._append_deploy_log, f"Snapshotting: {rel_path}")
+            self.app.call_from_thread(
+                self._append_deploy_log,
+                f"  [dim]snapshot[/] {rel_path}",
+            )
             try:
                 original = self._sftp_client.download_file(remote_abs)
                 self.session.snapshot(rel_path, original)
             except SFTPError as exc:
                 self.app.call_from_thread(
-                    self._append_deploy_log, f"  [yellow]Snapshot warning:[/] {exc}"
+                    self._append_deploy_log,
+                    f"  [bright_yellow]  snapshot warn:[/] {exc}",
                 )
 
-            self.app.call_from_thread(self._append_deploy_log, f"Uploading:   {rel_path}")
+            self.app.call_from_thread(
+                self._append_deploy_log,
+                f"  [bright_cyan]  upload  [/] {rel_path}",
+            )
             try:
                 bytes_written = self._sftp_client.upload_file(local_abs, remote_abs)
                 self.app.call_from_thread(
-                    self._append_deploy_log, f"  [green]OK[/] ({bytes_written} bytes)"
+                    self._append_deploy_log,
+                    f"  [bold bright_green]  OK[/] [dim]{bytes_written:,} bytes[/]",
                 )
             except SFTPError as exc:
                 self.app.call_from_thread(
-                    self._append_deploy_log, f"  [red]FAILED:[/] {exc}"
+                    self._append_deploy_log,
+                    f"  [bold bright_red]  FAILED:[/] {exc}",
                 )
 
         self.app.call_from_thread(
-            self._append_deploy_log, "\n[bold green]Deployment complete.[/]"
+            self._append_deploy_log,
+            f"\n[bold bright_green]  DEPLOYMENT COMPLETE[/]",
         )
+        self.app.call_from_thread(self._show_loading, False)
 
     def action_back(self) -> None:
         if self._rollback_panel_visible:
@@ -1082,10 +1296,11 @@ class FileSelectScreen(Screen):
         sl: SelectionList = self.query_one("#rollback-list")
         sl.clear_options()
         for entry in self.session.list_entries():
-            existed = "existed" if entry.existed_remotely() else "NEW"
+            existed = "[dim]existed[/]" if entry.existed_remotely() else "[bold bright_green]NEW[/]"
             label = (
-                f"{entry.rel_path}  [{existed}]"
-                f"  @ {entry.timestamp.strftime('%H:%M:%S')}"
+                f"  [bright_yellow]{entry.rel_path}[/]"
+                f"  [{existed}]"
+                f"  [dim]@ {entry.timestamp.strftime('%H:%M:%S')}[/]"
             )
             sl.add_option(Selection(label, entry.rel_path, initial_state=False))
         self.query_one("#rollback-result", Static).update("")
@@ -1099,11 +1314,13 @@ class FileSelectScreen(Screen):
     @work(thread=True)
     def _run_rollback(self, paths: list[str]) -> None:
         assert self._sftp_client is not None
+        self.app.call_from_thread(self._show_loading, True)
         for rel_path in paths:
             entry = self.session.get_entry(rel_path)
             if entry is None:
                 self.app.call_from_thread(
-                    self._append_rollback_log, f"No snapshot: {rel_path}"
+                    self._append_rollback_log,
+                    f"[bright_red]  No snapshot:[/] {rel_path}",
                 )
                 continue
             remote_abs = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
@@ -1112,35 +1329,44 @@ class FileSelectScreen(Screen):
                     assert entry.original_bytes is not None
                     self._sftp_client.upload_bytes(entry.original_bytes, remote_abs)
                     self.app.call_from_thread(
-                        self._append_rollback_log, f"Restored: {rel_path}"
+                        self._append_rollback_log,
+                        f"[bold bright_green]  Restored:[/] {rel_path}",
                     )
                 except SFTPError as exc:
                     self.app.call_from_thread(
-                        self._append_rollback_log, f"Failed {rel_path}: {exc}"
+                        self._append_rollback_log,
+                        f"[bold bright_red]  Failed {rel_path}:[/] {exc}",
                     )
             else:
                 try:
                     self._sftp_client.delete_remote_file(remote_abs)
                     self.app.call_from_thread(
                         self._append_rollback_log,
-                        f"Deleted (new file rollback): {rel_path}",
+                        f"[bold bright_yellow]  Deleted (new file rollback):[/] {rel_path}",
                     )
                 except SFTPError as exc:
                     self.app.call_from_thread(
-                        self._append_rollback_log, f"Failed to delete {rel_path}: {exc}"
+                        self._append_rollback_log,
+                        f"[bold bright_red]  Failed to delete {rel_path}:[/] {exc}",
                     )
         self.app.call_from_thread(
-            self._append_rollback_log, "\n[bold yellow]Rollback complete.[/]"
+            self._append_rollback_log,
+            f"\n[bold bright_yellow]  ROLLBACK COMPLETE[/]",
         )
+        self.app.call_from_thread(self._show_loading, False)
         self.app.call_from_thread(self._populate_rollback_list)
 
     def action_refresh_files(self) -> None:
+        self._set_conn_state(self._CONN_LOADING)
         self._refresh_file_lists_in_thread()
 
     @work(thread=True)
     def _refresh_file_lists_in_thread(self) -> None:
         """Background worker that re-fetches both file lists on F5."""
+        self.app.call_from_thread(self._show_loading, True)
         self._load_file_lists()
+        self.app.call_from_thread(self._show_loading, False)
+        self.app.call_from_thread(self._set_conn_state, self._CONN_CONNECTED)
 
 
 # ---------------------------------------------------------------------------
@@ -1156,15 +1382,41 @@ class DeployerApp(App):
 
     CSS = """
     Screen {
-        background: #0a0a0f;
+        background: #020207;
     }
     Header {
-        background: #0f0f1a;
-        color: #00e5ff;
+        background: #07070f;
+        color: #00ffff;
+        text-style: bold;
     }
     Footer {
-        background: #0f0f1a;
-        color: #4a5a6a;
+        background: #07070f;
+        color: #6080a0;
+    }
+    Footer > .footer--key {
+        background: #0d0d1c;
+        color: #00ffff;
+    }
+    Footer > .footer--description {
+        color: #6080a0;
+    }
+    SelectionList > .option-list--option-highlighted {
+        background: #0d1a2a;
+        color: #00ffff;
+    }
+    SelectionList > .option-list--option-selected {
+        color: #39ff14;
+    }
+    SelectionList > .option-list--option-selected-highlighted {
+        background: #0d1a2a;
+        color: #39ff14;
+    }
+    ListView > ListItem.--highlight {
+        background: #0d1a2a;
+    }
+    LoadingIndicator {
+        color: #00ffff;
+        background: #020207;
     }
     """
 
