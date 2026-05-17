@@ -675,8 +675,8 @@ class FileSelectScreen(Screen):
         opacity: 0.7;
     }
     #local-panel:focus-within {
-        border: heavy #00ffff;
-        border-title-color: #00ffff;
+        border: heavy #00cccc;
+        border-title-color: #00cccc;
         opacity: 1.0;
     }
     #remote-panel {
@@ -689,8 +689,8 @@ class FileSelectScreen(Screen):
         opacity: 0.7;
     }
     #remote-panel:focus-within {
-        border: heavy #ff00ff;
-        border-title-color: #ff00ff;
+        border: heavy #cc00cc;
+        border-title-color: #cc00cc;
         opacity: 1.0;
     }
     .panel-header {
@@ -1411,20 +1411,20 @@ class DeployerApp(App):
         color: #6080a0;
     }
     SelectionList > .option-list--option-highlighted {
-        background: #0a2d4a;
-        color: #00ffff;
+        background: #071d30;
+        color: #00cccc;
         text-style: bold;
     }
     SelectionList > .option-list--option-selected {
         color: #39ff14;
     }
     SelectionList > .option-list--option-selected-highlighted {
-        background: #0a2d4a;
+        background: #071d30;
         color: #39ff14;
         text-style: bold;
     }
     ListView > ListItem.--highlight {
-        background: #0a2d4a;
+        background: #071d30;
         color: #d0e8f8;
     }
     LoadingIndicator {
