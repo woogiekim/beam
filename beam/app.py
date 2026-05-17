@@ -653,10 +653,38 @@ class FileSelectScreen(Screen):
         local_root = Path(self.workspace.local_root).expanduser().resolve()
         local_set: frozenset[str] = build_local_tree(local_root)
 
+        # Collect empty local directories (dirs that exist but have no file descendants)
+        empty_local_dirs: set[str] = set()
+        try:
+            for dirpath, dirnames, filenames in os.walk(local_root):
+                # Skip hidden directories
+                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                # Compute the relative path of this directory
+                abs_dir = Path(dirpath)
+                try:
+                    rel_dir = abs_dir.relative_to(local_root).as_posix()
+                except ValueError:
+                    continue
+                if rel_dir == ".":
+                    continue
+                # A directory is empty if none of its descendants appear in local_set
+                prefix = rel_dir + "/"
+                has_descendants = any(
+                    p == rel_dir or p.startswith(prefix) for p in local_set
+                )
+                if not has_descendants:
+                    empty_local_dirs.add(rel_dir)
+        except OSError:
+            pass
+
         remote_stats: dict[str, tuple[int, float]] = {}
+        empty_remote_dirs: frozenset[str] = frozenset()
         if self._sftp_client is not None:
             try:
                 remote_stats = self._sftp_client.list_remote_tree_with_stats(
+                    self.workspace.remote_root
+                )
+                empty_remote_dirs = self._sftp_client.list_remote_empty_dirs(
                     self.workspace.remote_root
                 )
             except SFTPError:
@@ -678,6 +706,7 @@ class FileSelectScreen(Screen):
             remote_stats=remote_stats,
             remote_set=remote_set,
             show_diff=True,
+            empty_dirs=frozenset(empty_local_dirs),
         )
         remote_selections = self._build_tree_selections(
             paths=sorted(remote_set),
@@ -685,6 +714,7 @@ class FileSelectScreen(Screen):
             remote_stats={},
             remote_set=frozenset(),
             show_diff=False,
+            empty_dirs=empty_remote_dirs,
         )
 
         self.app.call_from_thread(self._update_local_list, local_selections)
@@ -697,6 +727,7 @@ class FileSelectScreen(Screen):
         remote_stats: dict[str, tuple[int, float]],
         remote_set: frozenset[str],
         show_diff: bool,
+        empty_dirs: frozenset[str] = frozenset(),
     ) -> list[Selection]:
         entries: list[Selection] = []
         seen_dirs: set[str] = set()
@@ -737,6 +768,25 @@ class FileSelectScreen(Screen):
                 label = f"{indent}{filename}  {size_str} {date_str}"
 
             entries.append(Selection(label, rel_path, initial_state=False))
+
+        # Add empty directory entries that haven't already been added as headers
+        # Sort them so parent dirs appear before their children
+        for dir_path in sorted(empty_dirs):
+            if dir_path in seen_dirs:
+                continue
+            seen_dirs.add(dir_path)
+            parts = dir_path.split("/")
+            dirname = parts[-1]
+            depth = len(parts) - 1
+            indent = "  " * depth
+            entries.append(
+                Selection(
+                    f"{indent}📁 {dirname}/",
+                    f"__dir__:{dir_path}",
+                    initial_state=False,
+                    disabled=True,
+                )
+            )
 
         return entries
 
