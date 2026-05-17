@@ -806,6 +806,10 @@ class FileSelectScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        ws = self.workspace
+        self.query_one("#info-bar").border_title = (
+            f"Local → {ws.name}(Remote)"
+        )
         self._set_conn_state(self._CONN_CONNECTING)
         self._connect_and_load()
 
