@@ -1082,9 +1082,10 @@ class FileSelectScreen(Screen):
             )
             return
         # Show confirmation before deleting remote files
-        file_list = ", ".join(str(v) for v in selected[:3])
-        if len(selected) > 3:
-            file_list += f", … (+{len(selected) - 3} more)"
+        if len(selected) == 1:
+            file_list = str(selected[0])
+        else:
+            file_list = f"{selected[0]} 외 {len(selected) - 1}개"
         message = (
             f"Permanently delete [bold]{len(selected)}[/] remote file(s) from "
             f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]?\n\n"
@@ -1179,9 +1180,10 @@ class FileSelectScreen(Screen):
             )
             return
         # Show confirmation before deploying
-        file_list = ", ".join(selected[:3])
-        if len(selected) > 3:
-            file_list += f", … (+{len(selected) - 3} more)"
+        if len(selected) == 1:
+            file_list = str(selected[0])
+        else:
+            file_list = f"{selected[0]} 외 {len(selected) - 1}개"
         message = (
             f"Deploy [bold]{len(selected)}[/] file(s) to "
             f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]?\n\n"
@@ -1284,9 +1286,10 @@ class FileSelectScreen(Screen):
                 self._rollback_panel_visible = False
             else:
                 # Show confirmation before rolling back
-                file_list = ", ".join(selected[:3])
-                if len(selected) > 3:
-                    file_list += f", … (+{len(selected) - 3} more)"
+                if len(selected) == 1:
+                    file_list = str(selected[0])
+                else:
+                    file_list = f"{selected[0]} 외 {len(selected) - 1}개"
                 message = (
                     f"Restore [bold]{len(selected)}[/] file(s) on "
                     f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/] "
