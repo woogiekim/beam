@@ -56,9 +56,9 @@ from .sftp import SFTPClient, SFTPError
 # ---------------------------------------------------------------------------
 #
 #  Background layers
-#    VOID      #020207   deepest background — space black
-#    SURFACE   #07070f   panel / widget surface
-#    RAISED    #0d0d1c   slightly raised surface (input fields, inner boxes)
+#    VOID      #000000   deepest background — pure black
+#    SURFACE   #020204   panel / widget surface
+#    RAISED    #030308   slightly raised surface (input fields, inner boxes)
 #
 #  Accent palette
 #    CYAN      #00ffff   primary accent — pure electric cyan
@@ -95,7 +95,7 @@ class WorkspaceFormScreen(Screen):
     CSS = """
     WorkspaceFormScreen {
         layout: vertical;
-        background: #020207;
+        background: #000000;
     }
     #form-title {
         margin: 1 2 0 2;
@@ -108,7 +108,7 @@ class WorkspaceFormScreen(Screen):
     #form-inner {
         margin: 1 4;
         height: auto;
-        background: #07070f;
+        background: #020204;
         border: heavy #00ffff;
         border-title-color: #00ffff;
         border-title-style: bold;
@@ -128,7 +128,7 @@ class WorkspaceFormScreen(Screen):
         height: auto;
     }
     Input {
-        background: #0d0d1c;
+        background: #030308;
         border: round #2a3a4a;
         color: #d0e8f8;
     }
@@ -359,7 +359,7 @@ class DeleteConfirmScreen(Screen):
     DeleteConfirmScreen {
         layout: vertical;
         align: center middle;
-        background: #020207;
+        background: #000000;
     }
     #confirm-box {
         width: 64;
@@ -368,7 +368,7 @@ class DeleteConfirmScreen(Screen):
         border-title-color: #ff0040;
         border-title-style: bold;
         padding: 2 4;
-        background: #0d0007;
+        background: #040002;
     }
     """
 
@@ -422,14 +422,14 @@ class ConfirmScreen(Screen):
     ConfirmScreen {
         layout: vertical;
         align: center middle;
-        background: #0a0a0f;
+        background: #000000;
     }
     #remote-confirm-box {
         width: 70;
         height: auto;
         border: round #ff3355;
         padding: 2 4;
-        background: #0f0f1a;
+        background: #030308;
     }
     #remote-confirm-title {
         color: #ff3355;
@@ -488,13 +488,13 @@ class WorkspaceScreen(Screen):
     CSS = """
     WorkspaceScreen {
         layout: vertical;
-        background: #020207;
+        background: #000000;
     }
     #workspace-header {
         height: 3;
         margin: 1 2 0 2;
         padding: 0 2;
-        background: #07070f;
+        background: #020204;
         border: heavy #00ffff;
         border-title-color: #00ffff;
         border-title-style: bold;
@@ -505,7 +505,7 @@ class WorkspaceScreen(Screen):
         height: 1fr;
         border: round #00ffff;
         margin: 1 2;
-        background: #07070f;
+        background: #020204;
     }
     #workspace-hint {
         margin: 0 2 1 2;
@@ -636,7 +636,7 @@ class FileSelectScreen(Screen):
     CSS = """
     FileSelectScreen {
         layout: vertical;
-        background: #020207;
+        background: #000000;
     }
 
     /* ── Top info bar ─────────────────────────────────────────── */
@@ -644,7 +644,7 @@ class FileSelectScreen(Screen):
         height: 3;
         margin: 1 2 0 2;
         padding: 0 2;
-        background: #07070f;
+        background: #020204;
         border: heavy #00ffff;
         border-title-color: #00ffff;
         border-title-style: bold;
@@ -657,7 +657,7 @@ class FileSelectScreen(Screen):
         height: 1;
         margin: 0 2;
         padding: 0 2;
-        background: #07070f;
+        background: #020204;
         color: #6080a0;
     }
 
@@ -671,7 +671,7 @@ class FileSelectScreen(Screen):
         border: heavy #00ffff;
         border-title-color: #00ffff;
         border-title-style: bold;
-        background: #07070f;
+        background: #020204;
     }
     #remote-panel {
         width: 1fr;
@@ -679,11 +679,11 @@ class FileSelectScreen(Screen):
         border-title-color: #ff00ff;
         border-title-style: bold;
         margin-left: 1;
-        background: #07070f;
+        background: #020204;
     }
     .panel-header {
         height: 2;
-        background: #020207;
+        background: #000000;
         color: #d0e8f8;
         padding: 0 2;
         content-align: left middle;
@@ -703,7 +703,7 @@ class FileSelectScreen(Screen):
         border-title-style: bold;
         margin: 1 2 0 2;
         overflow-y: scroll;
-        background: #020a02;
+        background: #000300;
         color: #39ff14;
         padding: 0 1;
         display: none;
@@ -723,7 +723,7 @@ class FileSelectScreen(Screen):
         border-title-color: #ff9500;
         border-title-style: bold;
         margin: 1 2 1 2;
-        background: #0a0600;
+        background: #020100;
         display: none;
     }
     #rollback-list {
@@ -731,7 +731,7 @@ class FileSelectScreen(Screen):
     }
     #rollback-result {
         height: 3;
-        background: #050300;
+        background: #010100;
         color: #ff9500;
         overflow-y: scroll;
         border-top: solid #2a1800;
@@ -1380,41 +1380,41 @@ class DeployerApp(App):
 
     CSS = """
     Screen {
-        background: #020207;
+        background: #000000;
     }
     Header {
-        background: #07070f;
+        background: #020204;
         color: #00ffff;
         text-style: bold;
     }
     Footer {
-        background: #07070f;
+        background: #020204;
         color: #6080a0;
     }
     Footer > .footer--key {
-        background: #0d0d1c;
+        background: #030308;
         color: #00ffff;
     }
     Footer > .footer--description {
         color: #6080a0;
     }
     SelectionList > .option-list--option-highlighted {
-        background: #0d1a2a;
+        background: #010a15;
         color: #00ffff;
     }
     SelectionList > .option-list--option-selected {
         color: #39ff14;
     }
     SelectionList > .option-list--option-selected-highlighted {
-        background: #0d1a2a;
+        background: #010a15;
         color: #39ff14;
     }
     ListView > ListItem.--highlight {
-        background: #0d1a2a;
+        background: #010a15;
     }
     LoadingIndicator {
         color: #00ffff;
-        background: #020207;
+        background: #000000;
     }
     """
 
