@@ -730,11 +730,11 @@ class FileSelectScreen(Screen):
 
     /* ── Rollback panel ───────────────────────────────────────── */
     #rollback-panel {
+        dock: bottom;
         height: 12;
         border: heavy #ff9500;
         border-title-color: #ff9500;
         border-title-style: bold;
-        margin: 1 2 1 2;
         background: #020100;
         display: none;
     }
