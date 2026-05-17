@@ -54,6 +54,7 @@ class WorkspaceFormScreen(Screen):
     CSS = """
     WorkspaceFormScreen {
         layout: vertical;
+        background: #0a0a0f;
     }
     #form-scroll {
         height: 1fr;
@@ -62,19 +63,30 @@ class WorkspaceFormScreen(Screen):
     #form-inner {
         margin: 1 4;
         height: auto;
+        background: #0f0f1a;
+        border: round #00e5ff;
+        padding: 1 2;
     }
     .field-label {
         margin-top: 1;
-        color: $text-muted;
+        color: #4a5a6a;
     }
     .required-label {
         margin-top: 1;
-        color: $accent;
+        color: #00e5ff;
     }
     #form-error {
         margin: 0 4;
-        color: $error;
+        color: #ff3355;
         height: auto;
+    }
+    Input {
+        background: #0f0f1a;
+        border: round #4a5a6a;
+        color: #c8d8e8;
+    }
+    Input:focus {
+        border: round #00e5ff;
     }
     """
 
@@ -282,13 +294,14 @@ class DeleteConfirmScreen(Screen):
     DeleteConfirmScreen {
         layout: vertical;
         align: center middle;
+        background: #0a0a0f;
     }
     #confirm-box {
         width: 60;
         height: auto;
-        border: round $error;
+        border: round #ff3355;
         padding: 2 4;
-        background: $surface;
+        background: #0f0f1a;
     }
     """
 
@@ -339,15 +352,17 @@ class WorkspaceScreen(Screen):
     CSS = """
     WorkspaceScreen {
         layout: vertical;
+        background: #0a0a0f;
     }
     #workspace-list {
         height: 1fr;
-        border: round $primary;
+        border: round #00e5ff;
         margin: 1 2;
+        background: #0f0f1a;
     }
     #workspace-hint {
         margin: 1 2 0 2;
-        color: $text-muted;
+        color: #4a5a6a;
     }
     """
 
@@ -445,18 +460,21 @@ class FileSelectScreen(Screen):
         Binding("ctrl+r", "show_rollback", "Rollback", priority=True),
         Binding("space", "toggle_selection", "Toggle", show=False),
         Binding("f5", "refresh_files", "Refresh", priority=True),
+        Binding("ctrl+a", "toggle_all_selection", "Select All/None", priority=True),
     ]
 
     CSS = """
     FileSelectScreen {
         layout: vertical;
+        background: #0a0a0f;
     }
     #info-bar {
         height: 3;
         margin: 1 2 0 2;
         padding: 0 1;
-        background: $surface;
-        border: round $primary-darken-2;
+        background: #0f0f1a;
+        border: round #4a5a6a;
+        color: #c8d8e8;
     }
     #panels {
         height: 1fr;
@@ -464,17 +482,19 @@ class FileSelectScreen(Screen):
     }
     #local-panel {
         width: 1fr;
-        border: round $primary;
+        border: round #00e5ff;
+        background: #0f0f1a;
     }
     #remote-panel {
         width: 1fr;
-        border: round $accent;
+        border: round #00ff88;
         margin-left: 1;
+        background: #0f0f1a;
     }
     .panel-header {
         height: 1;
-        background: $primary-darken-2;
-        color: $text;
+        background: #0a0a0f;
+        color: #c8d8e8;
         padding: 0 1;
         text-align: center;
     }
@@ -484,6 +504,15 @@ class FileSelectScreen(Screen):
     #remote-list {
         height: 1fr;
     }
+    #deploy-log {
+        height: 8;
+        border: round #00ff88;
+        margin: 0 2 1 2;
+        overflow-y: scroll;
+        background: #050508;
+        color: #00ff88;
+        display: none;
+    }
     """
 
     def __init__(self, workspace: Workspace, session: RollbackSession) -> None:
@@ -492,6 +521,7 @@ class FileSelectScreen(Screen):
         self.session = session
         self._sftp_client: Optional[SFTPClient] = None
         self._diff_checked = False
+        self._deploy_log_lines: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -503,11 +533,18 @@ class FileSelectScreen(Screen):
             )
         with Horizontal(id="panels"):
             with Container(id="local-panel"):
-                yield Label("Local  (Space to select, Ctrl+D to deploy)", classes="panel-header")
+                yield Label(
+                    "[bold #00e5ff]Local[/]  [dim](Space to select, Ctrl+A all, Ctrl+D deploy)[/]",
+                    classes="panel-header",
+                )
                 yield SelectionList(id="local-list")
             with Container(id="remote-panel"):
-                yield Label("Remote  (read-only reference)", classes="panel-header")
+                yield Label(
+                    "[bold #00ff88]Remote[/]  [dim](read-only reference)[/]",
+                    classes="panel-header",
+                )
                 yield ListView(id="remote-list")
+        yield Static(id="deploy-log")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -564,7 +601,7 @@ class FileSelectScreen(Screen):
             )
 
     def _load_file_lists(self) -> None:
-        """Populate local SelectionList and remote ListView separately."""
+        """Populate local SelectionList and remote ListView with diff indicators."""
         local_root = Path(self.workspace.local_root).expanduser().resolve()
         local_set: frozenset[str] = build_local_tree(local_root)
 
@@ -578,10 +615,31 @@ class FileSelectScreen(Screen):
             except SFTPError:
                 pass
 
-        local_selections = [
-            Selection(rel_path, rel_path, initial_state=False)
-            for rel_path in sorted(local_set)
-        ]
+        # Build local selections with diff indicators
+        local_selections: list[Selection] = []
+        for rel_path in sorted(local_set):
+            if rel_path not in remote_set:
+                # Local-only file
+                indicator = "[+]"
+            else:
+                # File exists on both sides — compare sizes
+                local_abs = str(local_root / rel_path)
+                local_size = os.path.getsize(local_abs)
+                remote_path = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
+                remote_size: Optional[int] = None
+                if self._sftp_client is not None:
+                    remote_size = self._sftp_client.get_file_size(remote_path)
+
+                if remote_size is None or local_size != remote_size:
+                    indicator = "[M]"
+                else:
+                    indicator = "[=]"
+
+            label = f"{indicator} {rel_path}"
+            local_selections.append(
+                Selection(label, rel_path, initial_state=False)
+            )
+
         remote_paths = sorted(remote_set)
 
         self.app.call_from_thread(self._update_local_list, local_selections)
@@ -599,6 +657,17 @@ class FileSelectScreen(Screen):
         for path in paths:
             lv.append(ListItem(Label(path)))
 
+    def action_toggle_all_selection(self) -> None:
+        """Ctrl+A: select all if any are unselected, deselect all if all selected."""
+        sl: SelectionList = self.query_one("#local-list")
+        # Check whether all items are currently selected
+        all_count = len(sl._options)  # type: ignore[attr-defined]
+        selected_count = len(list(sl.selected))
+        if all_count > 0 and selected_count == all_count:
+            sl.deselect_all()
+        else:
+            sl.select_all()
+
     def action_deploy_selected(self) -> None:
         if self._sftp_client is None:
             self.notify("Not connected.", severity="error")
@@ -608,13 +677,51 @@ class FileSelectScreen(Screen):
         if not selected:
             self.notify("No files selected. Use Space to select files.", severity="warning")
             return
-        self.app.push_screen(
-            DeployScreen(
-                workspace=self.workspace,
-                sftp_client=self._sftp_client,
-                session=self.session,
-                selected_paths=selected,
-            )
+        # Inline deploy — clear log and show panel
+        self._deploy_log_lines = []
+        log_widget: Static = self.query_one("#deploy-log")
+        log_widget.update("")
+        log_widget.display = True
+        self._run_deploy(selected)
+
+    def _append_deploy_log(self, line: str) -> None:
+        self._deploy_log_lines.append(line)
+        text = "\n".join(self._deploy_log_lines)
+        log_widget: Static = self.query_one("#deploy-log")
+        log_widget.update(text)
+
+    @work(thread=True)
+    def _run_deploy(self, selected_paths: list[str]) -> None:
+        """Upload selected files inline, appending progress to the deploy-log panel."""
+        assert self._sftp_client is not None
+        local_root = Path(self.workspace.local_root).expanduser().resolve()
+
+        for rel_path in selected_paths:
+            local_abs = str(local_root / rel_path)
+            remote_abs = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
+
+            self.app.call_from_thread(self._append_deploy_log, f"Snapshotting: {rel_path}")
+            try:
+                original = self._sftp_client.download_file(remote_abs)
+                self.session.snapshot(rel_path, original)
+            except SFTPError as exc:
+                self.app.call_from_thread(
+                    self._append_deploy_log, f"  [yellow]Snapshot warning:[/] {exc}"
+                )
+
+            self.app.call_from_thread(self._append_deploy_log, f"Uploading:   {rel_path}")
+            try:
+                bytes_written = self._sftp_client.upload_file(local_abs, remote_abs)
+                self.app.call_from_thread(
+                    self._append_deploy_log, f"  [green]OK[/] ({bytes_written} bytes)"
+                )
+            except SFTPError as exc:
+                self.app.call_from_thread(
+                    self._append_deploy_log, f"  [red]FAILED:[/] {exc}"
+                )
+
+        self.app.call_from_thread(
+            self._append_deploy_log, "\n[bold green]Deployment complete.[/]"
         )
 
     def action_show_rollback(self) -> None:
@@ -642,107 +749,6 @@ class FileSelectScreen(Screen):
 
 
 # ---------------------------------------------------------------------------
-# Deploy screen
-# ---------------------------------------------------------------------------
-
-
-class DeployScreen(Screen):
-    """Shows deployment progress and results."""
-
-    BINDINGS = [
-        Binding("escape", "app.pop_screen", "Back / Done"),
-    ]
-
-    CSS = """
-    DeployScreen {
-        layout: vertical;
-    }
-    #deploy-info {
-        margin: 1 2 0 2;
-        color: $text-muted;
-    }
-    #deploy-log {
-        height: 1fr;
-        border: round $primary;
-        margin: 1 2;
-        overflow-y: scroll;
-    }
-    #deploy-actions {
-        height: 3;
-        margin: 0 2 1 2;
-    }
-    """
-
-    def __init__(
-        self,
-        workspace: Workspace,
-        sftp_client: SFTPClient,
-        session: RollbackSession,
-        selected_paths: list[str],
-    ) -> None:
-        super().__init__()
-        self.workspace = workspace
-        self.sftp_client = sftp_client
-        self.session = session
-        self.selected_paths = selected_paths
-        self._log_lines: list[str] = []
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield Label(
-            f"Deploying [bold]{len(self.selected_paths)}[/] file(s) to "
-            f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]",
-            id="deploy-info",
-        )
-        yield Static(id="deploy-log")
-        with Horizontal(id="deploy-actions"):
-            yield Button("Done [esc]", id="btn-done", variant="success")
-        yield Footer()
-
-    def on_mount(self) -> None:
-        self._deploy()
-
-    @work(thread=True)
-    def _deploy(self) -> None:
-        local_root = Path(self.workspace.local_root).expanduser().resolve()
-
-        for rel_path in self.selected_paths:
-            local_abs = str(local_root / rel_path)
-            remote_abs = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
-
-            # Snapshot remote file before upload
-            self._append_log(f"Snapshotting: {rel_path}")
-            try:
-                original = self.sftp_client.download_file(remote_abs)
-                self.session.snapshot(rel_path, original)
-            except SFTPError as exc:
-                self._append_log(f"  [yellow]Snapshot warning:[/] {exc}")
-
-            # Upload
-            self._append_log(f"Uploading:   {rel_path}")
-            try:
-                bytes_written = self.sftp_client.upload_file(local_abs, remote_abs)
-                self._append_log(f"  [green]OK[/] ({bytes_written} bytes)")
-            except SFTPError as exc:
-                self._append_log(f"  [red]FAILED:[/] {exc}")
-
-        self._append_log("\n[bold green]Deployment complete.[/]")
-
-    def _append_log(self, line: str) -> None:
-        self._log_lines.append(line)
-        text = "\n".join(self._log_lines)
-        self.app.call_from_thread(self._update_log, text)
-
-    def _update_log(self, text: str) -> None:
-        log: Static = self.query_one("#deploy-log")
-        log.update(text)
-
-    @on(Button.Pressed, "#btn-done")
-    def on_done(self) -> None:
-        self.app.pop_screen()
-
-
-# ---------------------------------------------------------------------------
 # Rollback screen
 # ---------------------------------------------------------------------------
 
@@ -759,15 +765,17 @@ class RollbackScreen(Screen):
     CSS = """
     RollbackScreen {
         layout: vertical;
+        background: #0a0a0f;
     }
     #rollback-hint {
         margin: 1 2 0 2;
-        color: $text-muted;
+        color: #ffaa00;
     }
     #rollback-list {
         height: 1fr;
-        border: round $warning;
+        border: round #ffaa00;
         margin: 1 2;
+        background: #0f0f1a;
     }
     """
 
@@ -785,7 +793,7 @@ class RollbackScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Label(
-            "[bold yellow]Session Rollback[/]  — Space to select, Ctrl+R to restore, Esc to cancel",
+            "[bold #ffaa00]Session Rollback[/]  — Space to select, Ctrl+R to restore, Esc to cancel",
             id="rollback-hint",
         )
         yield SelectionList(id="rollback-list")
@@ -853,7 +861,15 @@ class DeployerApp(App):
 
     CSS = """
     Screen {
-        background: $surface;
+        background: #0a0a0f;
+    }
+    Header {
+        background: #0f0f1a;
+        color: #00e5ff;
+    }
+    Footer {
+        background: #0f0f1a;
+        color: #4a5a6a;
     }
     """
 

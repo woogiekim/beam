@@ -196,6 +196,15 @@ class SFTPClient:
                 except IOError:
                     pass  # race: another client created it
 
+    def get_file_size(self, remote_path: str) -> Optional[int]:
+        """Return the size in bytes of a remote file, or None on any error."""
+        if self._sftp is None:
+            return None
+        try:
+            return self._sftp.stat(remote_path).st_size
+        except Exception:
+            return None
+
     def list_remote_tree(self, remote_root: str, max_files: int = 500) -> list[str]:
         """Recursively list files under remote_root as POSIX-relative paths.
 
