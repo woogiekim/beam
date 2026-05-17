@@ -883,6 +883,7 @@ class FileSelectScreen(Screen):
             self.query_one("#rollback-panel").display = True
             self._rollback_panel_visible = True
             self._populate_rollback_list()
+            self.query_one("#rollback-list", SelectionList).focus()
         else:
             sl: SelectionList = self.query_one("#rollback-list")
             selected = list(sl.selected)
