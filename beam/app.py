@@ -47,14 +47,21 @@ from textual.widgets.selection_list import Selection
 from textual.widgets._toggle_button import ToggleButton
 from textual.strip import Strip
 from rich.markup import escape as markup_escape
-
-ToggleButton.BUTTON_LEFT = "["
-ToggleButton.BUTTON_INNER = "✓"
-ToggleButton.BUTTON_RIGHT = "]"
+from rich.segment import Segment as RichSegment
+from rich.style import Style as RichStyle
 
 
 class BeamSelectionList(SelectionList):
-    """SelectionList that hides the checkbox prefix for disabled (directory) items."""
+    """SelectionList with custom checkbox rendering.
+
+    - Disabled items (directory headers): no checkbox prefix.
+    - Enabled items: [ ] / [✓] with clear color distinction.
+    """
+
+    _STYLE_CHECKED          = RichStyle.parse("bold #39ff14")
+    _STYLE_CHECKED_HL       = RichStyle.parse("bold #39ff14 on #0178D4")
+    _STYLE_UNCHECKED        = RichStyle.parse("#4a6070")
+    _STYLE_UNCHECKED_HL     = RichStyle.parse("#c0d8f0 on #0178D4")
 
     def render_line(self, y: int) -> Strip:
         strip = super().render_line(y)
@@ -63,8 +70,19 @@ class BeamSelectionList(SelectionList):
         try:
             option = self.get_option_at_index(index)
             if option.disabled:
-                segments = list(strip)
-                return Strip(segments[4:])
+                return Strip(list(strip)[4:])
+
+            is_selected    = option.value in self._selected
+            is_highlighted = self.highlighted == index
+
+            if is_selected:
+                style = self._STYLE_CHECKED_HL if is_highlighted else self._STYLE_CHECKED
+                text  = "[✓] "
+            else:
+                style = self._STYLE_UNCHECKED_HL if is_highlighted else self._STYLE_UNCHECKED
+                text  = "[ ] "
+
+            return Strip([RichSegment(text, style)] + list(strip)[4:])
         except Exception:
             pass
         return strip
