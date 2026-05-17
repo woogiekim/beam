@@ -1092,20 +1092,6 @@ class FileSelectScreen(Screen):
         )
         self._load_file_lists()
 
-    @on(SelectionList.SelectionHighlighted, "#local-list")
-    def on_local_highlighted(self, event: SelectionList.SelectionHighlighted) -> None:
-        sel = event.selection
-        if sel is None:
-            return
-        val = str(sel.value)
-        if val.startswith("__dir__:"):
-            return
-        remote_sl: SelectionList = self.query_one("#remote-list")
-        for i, opt in enumerate(remote_sl._options):  # type: ignore[attr-defined]
-            if hasattr(opt, "value") and str(opt.value) == val:
-                remote_sl.highlighted = i
-                break
-
     @on(SelectionList.SelectionChanged, "#local-list")
     def on_local_selection_changed(
         self, event: SelectionList.SelectionChanged
