@@ -797,16 +797,22 @@ class FileSelectScreen(Screen):
     def action_toggle_all_selection(self) -> None:
         """Ctrl+A: select all files if any unselected, deselect all if all selected."""
         sl: SelectionList = self.query_one("#local-list")
-        selectable = [
-            o for o in sl._options  # type: ignore[attr-defined]
-            if not (hasattr(o, "value") and str(o.value).startswith("__dir__:"))
-            and not getattr(o, "disabled", False)
+        selectable_values = [
+            o.value for o in sl._options  # type: ignore[attr-defined]
+            if not getattr(o, "disabled", False)
+            and hasattr(o, "value")
+            and o.value is not None
+            and not str(o.value).startswith("__dir__:")
         ]
-        selected_count = len(list(sl.selected))
-        if len(selectable) > 0 and selected_count == len(selectable):
+        selected_values = {
+            v for v in sl.selected
+            if v is not None and not str(v).startswith("__dir__:")
+        }
+        if selectable_values and selected_values == set(selectable_values):
             sl.deselect_all()
         else:
-            sl.select_all()
+            for val in selectable_values:
+                sl.select(val)
 
     def action_deploy_selected(self) -> None:
         if self._sftp_client is None:
