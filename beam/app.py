@@ -786,13 +786,14 @@ class FileSelectScreen(Screen):
         ws = self.workspace
         port_info = f":{ws.port}" if ws.port != 22 else ""
         yield Header()
-        # Connection info bar
+        # Connection info bar — order matches border_title: Local → Remote
         yield Static(
+            f"[dim]local:[/]  [#6080a0]{ws.local_root}[/]"
+            f"  [dim]→[/]  "
             f"[bold bright_cyan]{ws.name}[/]"
             f"  [dim]║[/]  "
             f"[bright_white]{ws.user}@{ws.host}{port_info}[/]"
-            f"  [dim]→[/]  [#6080a0]{ws.remote_root}[/]"
-            f"  [dim]·  local: {ws.local_root}[/]",
+            f"  [#6080a0]{ws.remote_root}[/]",
             id="info-bar",
         )
         # Status bar
