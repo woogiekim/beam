@@ -668,18 +668,30 @@ class FileSelectScreen(Screen):
     }
     #local-panel {
         width: 1fr;
-        border: heavy #00ffff;
-        border-title-color: #00ffff;
+        border: heavy #1a4a4a;
+        border-title-color: #1a4a4a;
         border-title-style: bold;
         background: #07070f;
+        opacity: 0.7;
+    }
+    #local-panel:focus-within {
+        border: heavy #00ffff;
+        border-title-color: #00ffff;
+        opacity: 1.0;
     }
     #remote-panel {
         width: 1fr;
-        border: heavy #ff00ff;
-        border-title-color: #ff00ff;
+        border: heavy #4a1a4a;
+        border-title-color: #4a1a4a;
         border-title-style: bold;
         margin-left: 1;
         background: #07070f;
+        opacity: 0.7;
+    }
+    #remote-panel:focus-within {
+        border: heavy #ff00ff;
+        border-title-color: #ff00ff;
+        opacity: 1.0;
     }
     .panel-header {
         height: 2;
@@ -1399,18 +1411,21 @@ class DeployerApp(App):
         color: #6080a0;
     }
     SelectionList > .option-list--option-highlighted {
-        background: #0d1a2a;
+        background: #0a2d4a;
         color: #00ffff;
+        text-style: bold;
     }
     SelectionList > .option-list--option-selected {
         color: #39ff14;
     }
     SelectionList > .option-list--option-selected-highlighted {
-        background: #0d1a2a;
+        background: #0a2d4a;
         color: #39ff14;
+        text-style: bold;
     }
     ListView > ListItem.--highlight {
-        background: #0d1a2a;
+        background: #0a2d4a;
+        color: #d0e8f8;
     }
     LoadingIndicator {
         color: #00ffff;
