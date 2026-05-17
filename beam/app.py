@@ -1,4 +1,4 @@
-"""Deployer TUI Application.
+"""Beam TUI Application.
 
 Interactive terminal UI built with textual.
 Provides screens for workspace selection, file multi-select, deployment, and rollback.
@@ -832,7 +832,7 @@ class RollbackScreen(Screen):
 class DeployerApp(App):
     """Root application — initializes config and enters workspace selection."""
 
-    TITLE = "Deployer"
+    TITLE = "Beam"
     SUB_TITLE = "Terminal SFTP deployment tool"
 
     CSS = """
@@ -858,7 +858,7 @@ class DeployerApp(App):
 
 
 def main() -> None:
-    """Entry point for the deployer CLI."""
+    """Entry point for the beam CLI."""
     app = DeployerApp()
     app.run()
 

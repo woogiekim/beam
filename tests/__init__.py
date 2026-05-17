@@ -1,1 +1,1 @@
-# Tests for the deployer package.
+# Tests for the beam package.

@@ -1,4 +1,4 @@
-"""Tests for deployer/config.py — workspace configuration management."""
+"""Tests for beam/config.py — workspace configuration management."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from deployer.config import Workspace, WorkspaceConfig
+from beam.config import Workspace, WorkspaceConfig
 
 
 # ---------------------------------------------------------------------------

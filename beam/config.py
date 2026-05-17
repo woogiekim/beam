@@ -1,6 +1,6 @@
 """Workspace configuration management.
 
-Stores multiple named workspaces in ~/.deployer/workspaces.json.
+Stores multiple named workspaces in ~/.beam/workspaces.json.
 Each workspace defines a local root directory and a remote SSH/SFTP connection.
 """
 
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 
-CONFIG_DIR = Path.home() / ".deployer"
+CONFIG_DIR = Path.home() / ".beam"
 CONFIG_FILE = CONFIG_DIR / "workspaces.json"
 
 
