@@ -71,11 +71,6 @@ class WorkspaceFormScreen(Screen):
         margin-top: 1;
         color: $accent;
     }
-    #form-actions {
-        height: 3;
-        margin: 0 4 1 4;
-        layout: horizontal;
-    }
     #form-error {
         margin: 0 4;
         color: $error;
@@ -165,9 +160,6 @@ class WorkspaceFormScreen(Screen):
                     placeholder="0.30",
                     id="inp-diff-threshold",
                 )
-        with Horizontal(id="form-actions"):
-            yield Button("Save [ctrl+s]", id="btn-save", variant="success")
-            yield Button("Cancel [esc]", id="btn-cancel", variant="default")
         yield Footer()
 
     def _show_error(self, msg: str) -> None:
@@ -257,10 +249,6 @@ class WorkspaceFormScreen(Screen):
         """Triggered by Ctrl+S keybinding."""
         self._do_save()
 
-    @on(Button.Pressed, "#btn-save")
-    def on_save(self) -> None:
-        self._do_save()
-
     def _do_save(self) -> None:
         self._clear_error()
         workspace = self._collect_and_validate()
@@ -274,10 +262,6 @@ class WorkspaceFormScreen(Screen):
         self.config.add(workspace)  # add() calls save() internally
         mode = "updated" if self.workspace else "added"
         self.notify(f"Workspace '{workspace.name}' {mode}.", severity="information")
-        self.app.pop_screen()
-
-    @on(Button.Pressed, "#btn-cancel")
-    def on_cancel(self) -> None:
         self.app.pop_screen()
 
 
@@ -307,10 +291,6 @@ class DeleteConfirmScreen(Screen):
         padding: 2 4;
         background: $surface;
     }
-    #confirm-actions {
-        margin-top: 2;
-        layout: horizontal;
-    }
     """
 
     def __init__(self, config: WorkspaceConfig, workspace_name: str) -> None:
@@ -327,16 +307,9 @@ class DeleteConfirmScreen(Screen):
                 f"This cannot be undone.\n\n"
                 f"Press [bold]Y[/] to delete  or  [bold]N[/] / Esc to cancel.",
             )
-            with Horizontal(id="confirm-actions"):
-                yield Button("Delete [y]", id="btn-yes", variant="error")
-                yield Button("Cancel [n]", id="btn-no", variant="default")
         yield Footer()
 
     def action_confirm_delete(self) -> None:
-        self._do_delete()
-
-    @on(Button.Pressed, "#btn-yes")
-    def on_yes(self) -> None:
         self._do_delete()
 
     def _do_delete(self) -> None:
@@ -345,10 +318,6 @@ class DeleteConfirmScreen(Screen):
             f"Workspace '{self.workspace_name}' deleted.",
             severity="warning",
         )
-        self.app.pop_screen()
-
-    @on(Button.Pressed, "#btn-no")
-    def on_no(self) -> None:
         self.app.pop_screen()
 
 
@@ -570,14 +539,43 @@ class FileSelectScreen(Screen):
             )
 
     def _load_file_list(self) -> None:
-        """Populate the SelectionList with local workspace files."""
-        local_root = Path(self.workspace.local_root).expanduser().resolve()
-        local_paths = sorted(build_local_tree(local_root))
+        """Populate the SelectionList with merged local+remote workspace files.
 
-        selections = [
-            Selection(rel_path, rel_path, initial_state=False)
-            for rel_path in local_paths
-        ]
+        Each entry is labelled with an indicator:
+          [B] — exists in both local and remote
+          [L] — local only
+          [R] — remote only
+
+        Remote files are fetched via the already-open SFTP connection.
+        Falls back to local-only listing when the SFTP client is unavailable.
+        """
+        local_root = Path(self.workspace.local_root).expanduser().resolve()
+        local_set: frozenset[str] = build_local_tree(local_root)
+
+        remote_set: frozenset[str] = frozenset()
+        if self._sftp_client is not None:
+            try:
+                remote_list = self._sftp_client.list_remote_tree(
+                    self.workspace.remote_root
+                )
+                remote_set = frozenset(remote_list)
+            except SFTPError:
+                pass  # remote listing failed — show local only
+
+        all_paths = sorted(local_set | remote_set)
+
+        selections: list[Selection] = []
+        for rel_path in all_paths:
+            in_local = rel_path in local_set
+            in_remote = rel_path in remote_set
+            if in_local and in_remote:
+                label = f"[B] {rel_path}"
+            elif in_local:
+                label = f"[L] {rel_path}"
+            else:
+                label = f"[R] {rel_path}"
+            selections.append(Selection(label, rel_path, initial_state=False))
+
         self.app.call_from_thread(self._update_file_list, selections)
 
     def _update_file_list(self, selections: list[Selection]) -> None:
@@ -620,6 +618,11 @@ class FileSelectScreen(Screen):
         )
 
     def action_refresh_files(self) -> None:
+        self._refresh_file_list_in_thread()
+
+    @work(thread=True)
+    def _refresh_file_list_in_thread(self) -> None:
+        """Background worker that re-fetches the file list on F5."""
         self._load_file_list()
 
 
