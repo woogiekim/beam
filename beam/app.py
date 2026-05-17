@@ -1313,7 +1313,7 @@ class FileSelectScreen(Screen):
             safe_path = markup_escape(entry.rel_path)
             label = (
                 f"  [bright_yellow]{safe_path}[/]"
-                f"  [{existed}]"
+                f"  {existed}"
                 f"  [dim]@ {entry.timestamp.strftime('%H:%M:%S')}[/]"
             )
             sl.add_option(Selection(label, entry.rel_path, initial_state=False))

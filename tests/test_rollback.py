@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from rich.markup import escape as markup_escape
 
 from beam.rollback import RollbackEntry, RollbackSession
 
@@ -97,3 +98,47 @@ class TestRollbackSession:
         assert len(session) == 3
         for p in paths:
             assert session.has_entry(p)
+
+
+class TestRollbackListLabelMarkup:
+    """Verify that _populate_rollback_list label strings are valid Rich markup.
+
+    Regression test for: MarkupError when file paths contain characters that
+    Rich interprets as markup tags (e.g. '[', ']', '[/]').
+    """
+
+    def _build_label(self, rel_path: str, existed_remotely: bool) -> str:
+        existed = "[dim]existed[/]" if existed_remotely else "[bold bright_green]NEW[/]"
+        safe_path = markup_escape(rel_path)
+        return (
+            f"  [bright_yellow]{safe_path}[/]"
+            f"  {existed}"
+            f"  [dim]@ 12:34:56[/]"
+        )
+
+    def _assert_valid_markup(self, label: str) -> None:
+        from textual.content import Content
+        Content.from_markup(label)  # must not raise MarkupError
+
+    def test_plain_path_does_not_raise(self) -> None:
+        label = self._build_label("src/app.py", existed_remotely=True)
+        self._assert_valid_markup(label)
+
+    def test_path_with_brackets_does_not_raise(self) -> None:
+        """File paths with '[' and ']' must not break Rich markup parsing."""
+        label = self._build_label("src/[module]/app.py", existed_remotely=True)
+        self._assert_valid_markup(label)
+
+    def test_path_with_closing_tag_does_not_raise(self) -> None:
+        """Path containing '[/]' pattern must not cause MarkupError."""
+        label = self._build_label("dist/[v1]/[/]build.js", existed_remotely=False)
+        self._assert_valid_markup(label)
+
+    def test_new_file_label_does_not_raise(self) -> None:
+        label = self._build_label("new_feature.py", existed_remotely=False)
+        self._assert_valid_markup(label)
+
+    def test_path_with_rich_tag_lookalike_does_not_raise(self) -> None:
+        """Path that looks like a Rich tag (e.g. [bold]) must be escaped."""
+        label = self._build_label("[bold]tricky[/bold]/file.py", existed_remotely=True)
+        self._assert_valid_markup(label)
