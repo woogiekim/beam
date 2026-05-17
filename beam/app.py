@@ -48,7 +48,7 @@ class WorkspaceFormScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Cancel"),
-        Binding("ctrl+s", "submit", "Save"),
+        Binding("ctrl+s", "submit", "Save", priority=True),
     ]
 
     CSS = """
@@ -275,7 +275,7 @@ class DeleteConfirmScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Cancel"),
-        Binding("enter", "confirm_delete", "Yes — delete"),
+        Binding("enter", "confirm_delete", "Yes — delete", priority=True),
     ]
 
     CSS = """
@@ -330,9 +330,9 @@ class WorkspaceScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
-        Binding("ctrl+n", "add_workspace", "Add"),
-        Binding("ctrl+e", "edit_workspace", "Edit"),
-        Binding("ctrl+d", "delete_workspace", "Delete"),
+        Binding("ctrl+n", "add_workspace", "Add", priority=True),
+        Binding("ctrl+e", "edit_workspace", "Edit", priority=True),
+        Binding("ctrl+d", "delete_workspace", "Delete", priority=True),
         Binding("enter", "select_workspace", "Open", show=False),
     ]
 
@@ -437,14 +437,14 @@ class WorkspaceScreen(Screen):
 
 
 class FileSelectScreen(Screen):
-    """Screen showing local workspace files with multi-select for deployment."""
+    """Screen showing local and remote workspace files in a side-by-side split."""
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
-        Binding("ctrl+d", "deploy_selected", "Deploy"),
-        Binding("ctrl+r", "show_rollback", "Rollback"),
+        Binding("ctrl+d", "deploy_selected", "Deploy", priority=True),
+        Binding("ctrl+r", "show_rollback", "Rollback", priority=True),
         Binding("space", "toggle_selection", "Toggle", show=False),
-        Binding("f5", "refresh_files", "Refresh"),
+        Binding("f5", "refresh_files", "Refresh", priority=True),
     ]
 
     CSS = """
@@ -458,10 +458,31 @@ class FileSelectScreen(Screen):
         background: $surface;
         border: round $primary-darken-2;
     }
-    #file-list {
+    #panels {
         height: 1fr;
-        border: round $primary;
         margin: 1 2;
+    }
+    #local-panel {
+        width: 1fr;
+        border: round $primary;
+    }
+    #remote-panel {
+        width: 1fr;
+        border: round $accent;
+        margin-left: 1;
+    }
+    .panel-header {
+        height: 1;
+        background: $primary-darken-2;
+        color: $text;
+        padding: 0 1;
+        text-align: center;
+    }
+    #local-list {
+        height: 1fr;
+    }
+    #remote-list {
+        height: 1fr;
     }
     """
 
@@ -480,7 +501,13 @@ class FileSelectScreen(Screen):
                 f"{self.workspace.user}@{self.workspace.host}:{self.workspace.remote_root}  "
                 f"→ local: {self.workspace.local_root}"
             )
-        yield SelectionList(id="file-list")
+        with Horizontal(id="panels"):
+            with Container(id="local-panel"):
+                yield Label("Local  (Space to select, Ctrl+D to deploy)", classes="panel-header")
+                yield SelectionList(id="local-list")
+            with Container(id="remote-panel"):
+                yield Label("Remote  (read-only reference)", classes="panel-header")
+                yield ListView(id="remote-list")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -488,7 +515,7 @@ class FileSelectScreen(Screen):
 
     @work(thread=True)
     def _connect_and_load(self) -> None:
-        """Connect to SFTP and load file list (runs in background thread)."""
+        """Connect to SFTP and load file lists (runs in background thread)."""
         self.app.call_from_thread(
             self.notify, f"Connecting to {self.workspace.host}...", timeout=3
         )
@@ -506,12 +533,11 @@ class FileSelectScreen(Screen):
 
         self._sftp_client = client
 
-        # Directory diff check
         if not self._diff_checked:
             self._diff_checked = True
             self._check_diff()
 
-        self._load_file_list()
+        self._load_file_lists()
 
     def _check_diff(self) -> None:
         """Compare local vs remote trees; warn if threshold exceeded."""
@@ -537,17 +563,8 @@ class FileSelectScreen(Screen):
                 timeout=15,
             )
 
-    def _load_file_list(self) -> None:
-        """Populate the SelectionList with merged local+remote workspace files.
-
-        Each entry is labelled with an indicator:
-          [B] — exists in both local and remote
-          [L] — local only
-          [R] — remote only
-
-        Remote files are fetched via the already-open SFTP connection.
-        Falls back to local-only listing when the SFTP client is unavailable.
-        """
+    def _load_file_lists(self) -> None:
+        """Populate local SelectionList and remote ListView separately."""
         local_root = Path(self.workspace.local_root).expanduser().resolve()
         local_set: frozenset[str] = build_local_tree(local_root)
 
@@ -559,35 +576,34 @@ class FileSelectScreen(Screen):
                 )
                 remote_set = frozenset(remote_list)
             except SFTPError:
-                pass  # remote listing failed — show local only
+                pass
 
-        all_paths = sorted(local_set | remote_set)
+        local_selections = [
+            Selection(rel_path, rel_path, initial_state=False)
+            for rel_path in sorted(local_set)
+        ]
+        remote_paths = sorted(remote_set)
 
-        selections: list[Selection] = []
-        for rel_path in all_paths:
-            in_local = rel_path in local_set
-            in_remote = rel_path in remote_set
-            if in_local and in_remote:
-                label = f"[B] {rel_path}"
-            elif in_local:
-                label = f"[L] {rel_path}"
-            else:
-                label = f"[R] {rel_path}"
-            selections.append(Selection(label, rel_path, initial_state=False))
+        self.app.call_from_thread(self._update_local_list, local_selections)
+        self.app.call_from_thread(self._update_remote_list, remote_paths)
 
-        self.app.call_from_thread(self._update_file_list, selections)
-
-    def _update_file_list(self, selections: list[Selection]) -> None:
-        sl: SelectionList = self.query_one("#file-list")
+    def _update_local_list(self, selections: list[Selection]) -> None:
+        sl: SelectionList = self.query_one("#local-list")
         sl.clear_options()
         for sel in selections:
             sl.add_option(sel)
+
+    def _update_remote_list(self, paths: list[str]) -> None:
+        lv: ListView = self.query_one("#remote-list")
+        lv.clear()
+        for path in paths:
+            lv.append(ListItem(Label(path)))
 
     def action_deploy_selected(self) -> None:
         if self._sftp_client is None:
             self.notify("Not connected.", severity="error")
             return
-        sl: SelectionList = self.query_one("#file-list")
+        sl: SelectionList = self.query_one("#local-list")
         selected = list(sl.selected)
         if not selected:
             self.notify("No files selected. Use Space to select files.", severity="warning")
@@ -617,12 +633,12 @@ class FileSelectScreen(Screen):
         )
 
     def action_refresh_files(self) -> None:
-        self._refresh_file_list_in_thread()
+        self._refresh_file_lists_in_thread()
 
     @work(thread=True)
-    def _refresh_file_list_in_thread(self) -> None:
-        """Background worker that re-fetches the file list on F5."""
-        self._load_file_list()
+    def _refresh_file_lists_in_thread(self) -> None:
+        """Background worker that re-fetches both file lists on F5."""
+        self._load_file_lists()
 
 
 # ---------------------------------------------------------------------------
@@ -736,7 +752,7 @@ class RollbackScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Cancel"),
-        Binding("ctrl+r", "do_rollback", "Rollback selected"),
+        Binding("ctrl+r", "do_rollback", "Rollback selected", priority=True),
         Binding("space", "toggle_selection", "Toggle", show=False),
     ]
 
