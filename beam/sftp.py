@@ -222,8 +222,24 @@ class SFTPClient:
         """
         sftp = self._require_connected()
         results: dict[str, tuple[int, float]] = {}
-        self._walk_remote(sftp, remote_root, remote_root, results, max_files)
+        empty_dirs: set[str] = set()
+        self._walk_remote(sftp, remote_root, remote_root, results, max_files, empty_dirs)
         return results
+
+    def list_remote_empty_dirs(self, remote_root: str, max_files: int = 500) -> frozenset[str]:
+        """Return relative paths of remote directories that contain no files.
+
+        A directory is considered empty if it has no file descendants (recursively).
+        Directories that only contain other empty subdirectories are also included.
+
+        Returns:
+            Frozenset of POSIX-style relative directory paths (e.g. "empty/subdir").
+        """
+        sftp = self._require_connected()
+        results: dict[str, tuple[int, float]] = {}
+        empty_dirs: set[str] = set()
+        self._walk_remote(sftp, remote_root, remote_root, results, max_files, empty_dirs)
+        return frozenset(empty_dirs)
 
     def _walk_remote(
         self,
@@ -232,22 +248,41 @@ class SFTPClient:
         current: str,
         results: dict[str, tuple[int, float]],
         max_files: int,
-    ) -> None:
+        empty_dirs: set[str],
+    ) -> bool:
+        """Walk remote directory tree, collecting files and empty directories.
+
+        Returns:
+            True if this directory (or any descendant) contained at least one file.
+        """
         if len(results) >= max_files:
-            return
+            return True  # treat as non-empty when truncated
         try:
             entries = sftp.listdir_attr(current)
         except IOError as exc:
             raise SFTPError(f"Cannot list remote directory {current}: {exc}") from exc
 
+        has_files = False
         for entry in entries:
             if entry.filename.startswith("."):
                 continue
             full_path = f"{current}/{entry.filename}".replace("//", "/")
             if stat.S_ISDIR(entry.st_mode or 0):
-                self._walk_remote(sftp, root, full_path, results, max_files)
+                child_has_files = self._walk_remote(
+                    sftp, root, full_path, results, max_files, empty_dirs
+                )
+                if child_has_files:
+                    has_files = True
             else:
                 rel = full_path[len(root):].lstrip("/")
                 results[rel] = (entry.st_size or 0, float(entry.st_mtime or 0))
+                has_files = True
                 if len(results) >= max_files:
-                    return
+                    return True
+
+        if not has_files and current != root:
+            rel_dir = current[len(root):].lstrip("/")
+            if rel_dir:
+                empty_dirs.add(rel_dir)
+
+        return has_files
