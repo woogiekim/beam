@@ -1106,9 +1106,9 @@ class FileSelectScreen(Screen):
                 remote_sl.highlighted = i
                 break
 
-    @on(SelectionList.SelectionChanged, "#local-list")
+    @on(SelectionList.SelectedChanged, "#local-list")
     def on_local_selection_changed(
-        self, event: SelectionList.SelectionChanged
+        self, event: SelectionList.SelectedChanged
     ) -> None:
         """Update selected count in status bar."""
         sl = self.query_one("#local-list", SelectionList)
