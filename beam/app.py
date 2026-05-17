@@ -888,7 +888,7 @@ class FileSelectScreen(Screen):
             return focused_id != "remote-list"
         if action == "delete_remote_selected":
             return focused_id == "remote-list"
-        return None
+        return True
 
     def _set_conn_state(self, state: str) -> None:
         """Update the status bar with a new connection state message."""
