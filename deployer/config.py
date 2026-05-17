@@ -26,6 +26,7 @@ class Workspace:
     host: str
     user: str
     remote_root: str
+    port: int = 22
     password: Optional[str] = None
     key_path: Optional[str] = None
     diff_threshold: float = 0.30
@@ -56,6 +57,7 @@ class Workspace:
             host=data["host"],
             user=data["user"],
             remote_root=data["remote_root"],
+            port=int(data.get("port", 22)),
             password=data.get("password"),
             key_path=data.get("key_path"),
             diff_threshold=data.get("diff_threshold", 0.30),

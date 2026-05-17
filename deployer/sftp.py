@@ -59,6 +59,7 @@ class SFTPClient:
         try:
             connect_kwargs: dict = {
                 "hostname": workspace.host,
+                "port": getattr(workspace, "port", 22),
                 "username": workspace.user,
                 "timeout": 15,
             }
