@@ -1,4 +1,4 @@
-"""Tests for deployer/diff.py — directory structure diff detection."""
+"""Tests for beam/diff.py — directory structure diff detection."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from deployer.diff import DiffResult, build_local_tree, compute_diff
+from beam.diff import DiffResult, build_local_tree, compute_diff
 
 
 class TestDiffResult:

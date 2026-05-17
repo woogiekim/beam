@@ -1,4 +1,4 @@
-"""Tests for deployer/config.py — workspace configuration management."""
+"""Tests for beam/config.py — workspace configuration management."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from deployer.config import Workspace, WorkspaceConfig
+from beam.config import Workspace, WorkspaceConfig
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +47,39 @@ class TestWorkspace:
                 host="host",
                 user="u",
                 remote_root="/r",
+            )
+
+    def test_absolute_remote_root_accepted(self) -> None:
+        ws = Workspace(
+            name="abs",
+            local_root="/tmp",
+            host="h",
+            user="u",
+            remote_root="/upload",
+            password="p",
+        )
+        assert ws.remote_root == "/upload"
+
+    def test_relative_remote_root_raises(self) -> None:
+        with pytest.raises(ValueError, match="remote_root must be an absolute path"):
+            Workspace(
+                name="rel",
+                local_root="/tmp",
+                host="h",
+                user="u",
+                remote_root="upload",
+                password="p",
+            )
+
+    def test_tilde_remote_root_raises(self) -> None:
+        with pytest.raises(ValueError, match="remote_root must be an absolute path"):
+            Workspace(
+                name="tilde",
+                local_root="/tmp",
+                host="h",
+                user="u",
+                remote_root="~/upload",
+                password="p",
             )
 
     def test_default_threshold(self) -> None:

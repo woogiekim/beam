@@ -1,6 +1,6 @@
 """Workspace configuration management.
 
-Stores multiple named workspaces in ~/.deployer/workspaces.json.
+Stores multiple named workspaces in ~/.beam/workspaces.json.
 Each workspace defines a local root directory and a remote SSH/SFTP connection.
 """
 
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 
-CONFIG_DIR = Path.home() / ".deployer"
+CONFIG_DIR = Path.home() / ".beam"
 CONFIG_FILE = CONFIG_DIR / "workspaces.json"
 
 
@@ -35,6 +35,11 @@ class Workspace:
         if not self.password and not self.key_path:
             raise ValueError(
                 f"Workspace '{self.name}' must have either password or key_path set."
+            )
+        if not self.remote_root.startswith("/"):
+            raise ValueError(
+                f"Workspace '{self.name}': remote_root must be an absolute path "
+                f"(must start with '/'), got: {self.remote_root!r}"
             )
 
     def auth_type(self) -> str:

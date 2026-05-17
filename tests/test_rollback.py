@@ -1,4 +1,4 @@
-"""Tests for deployer/rollback.py — session-scoped rollback state."""
+"""Tests for beam/rollback.py — session-scoped rollback state."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from deployer.rollback import RollbackEntry, RollbackSession
+from beam.rollback import RollbackEntry, RollbackSession
 
 
 class TestRollbackEntry:
