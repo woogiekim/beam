@@ -508,6 +508,10 @@ class WorkspaceScreen(Screen):
         margin: 1 2;
         background: #020204;
     }
+    #workspace-list > ListItem.--highlight {
+        background: #0178D4;
+        color: #ffffff;
+    }
     #workspace-hint {
         margin: 0 2 1 2;
         color: #6080a0;
@@ -1412,21 +1416,21 @@ class DeployerApp(App):
         color: #6080a0;
     }
     SelectionList > .option-list--option-highlighted {
-        background: #050f1a;
-        color: #007a7a;
+        background: #0178D4;
+        color: #ffffff;
         text-style: bold;
     }
     SelectionList > .option-list--option-selected {
         color: #39ff14;
     }
     SelectionList > .option-list--option-selected-highlighted {
-        background: #050f1a;
+        background: #0178D4;
         color: #39ff14;
         text-style: bold;
     }
     ListView > ListItem.--highlight {
-        background: #050f1a;
-        color: #d0e8f8;
+        background: #0178D4;
+        color: #ffffff;
     }
     LoadingIndicator {
         color: #00ffff;
