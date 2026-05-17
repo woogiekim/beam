@@ -469,7 +469,7 @@ class FileSelectScreen(Screen):
     """Screen showing local and remote workspace files in a side-by-side split."""
 
     BINDINGS = [
-        Binding("escape", "app.pop_screen", "Back"),
+        Binding("escape", "back", "Back"),
         Binding("ctrl+d", "deploy_selected", "Deploy", priority=True),
         Binding("ctrl+x", "delete_remote_selected", "Delete Remote", priority=True),
         Binding("ctrl+r", "show_rollback", "Rollback", priority=True),
@@ -522,11 +522,35 @@ class FileSelectScreen(Screen):
     #deploy-log {
         height: 8;
         border: round #00ff88;
-        margin: 0 2 1 2;
+        margin: 0 2 0 2;
         overflow-y: scroll;
         background: #050508;
         color: #00ff88;
         display: none;
+    }
+    #rollback-panel {
+        height: 12;
+        border: round #ffaa00;
+        margin: 0 2 1 2;
+        background: #0f0a00;
+        display: none;
+    }
+    #rollback-panel-header {
+        height: 1;
+        background: #1a1000;
+        color: #ffaa00;
+        padding: 0 1;
+    }
+    #rollback-list {
+        height: 1fr;
+    }
+    #rollback-result {
+        height: 3;
+        background: #050300;
+        color: #ffaa00;
+        overflow-y: scroll;
+        border-top: solid #3a2800;
+        padding: 0 1;
     }
     """
 
@@ -537,6 +561,8 @@ class FileSelectScreen(Screen):
         self._sftp_client: Optional[SFTPClient] = None
         self._diff_checked = False
         self._deploy_log_lines: list[str] = []
+        self._rollback_log_lines: list[str] = []
+        self._rollback_panel_visible = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -560,6 +586,13 @@ class FileSelectScreen(Screen):
                 )
                 yield SelectionList(id="remote-list")
         yield Static(id="deploy-log")
+        with Container(id="rollback-panel"):
+            yield Label(
+                "[bold #ffaa00]Rollback[/]  [dim]Space to select, Ctrl+R to restore, Esc to close[/]",
+                id="rollback-panel-header",
+            )
+            yield SelectionList(id="rollback-list")
+            yield Static(id="rollback-result")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -831,6 +864,13 @@ class FileSelectScreen(Screen):
             self._append_deploy_log, "\n[bold green]Deployment complete.[/]"
         )
 
+    def action_back(self) -> None:
+        if self._rollback_panel_visible:
+            self.query_one("#rollback-panel").display = False
+            self._rollback_panel_visible = False
+        else:
+            self.app.pop_screen()
+
     def action_show_rollback(self) -> None:
         if self._sftp_client is None:
             self.notify("Not connected.", severity="error")
@@ -838,13 +878,77 @@ class FileSelectScreen(Screen):
         if len(self.session) == 0:
             self.notify("No rollback entries in this session.", severity="information")
             return
-        self.app.push_screen(
-            RollbackScreen(
-                workspace=self.workspace,
-                sftp_client=self._sftp_client,
-                session=self.session,
+
+        if not self._rollback_panel_visible:
+            self.query_one("#rollback-panel").display = True
+            self._rollback_panel_visible = True
+            self._populate_rollback_list()
+        else:
+            sl: SelectionList = self.query_one("#rollback-list")
+            selected = list(sl.selected)
+            if not selected:
+                self.query_one("#rollback-panel").display = False
+                self._rollback_panel_visible = False
+            else:
+                self._rollback_log_lines = []
+                self.query_one("#rollback-result", Static).update("")
+                self._run_rollback(selected)
+
+    def _populate_rollback_list(self) -> None:
+        sl: SelectionList = self.query_one("#rollback-list")
+        sl.clear_options()
+        for entry in self.session.list_entries():
+            existed = "existed" if entry.existed_remotely() else "NEW"
+            label = (
+                f"{entry.rel_path}  [{existed}]"
+                f"  @ {entry.timestamp.strftime('%H:%M:%S')}"
             )
+            sl.add_option(Selection(label, entry.rel_path, initial_state=False))
+        self.query_one("#rollback-result", Static).update("")
+
+    def _append_rollback_log(self, line: str) -> None:
+        self._rollback_log_lines.append(line)
+        self.query_one("#rollback-result", Static).update(
+            "\n".join(self._rollback_log_lines)
         )
+
+    @work(thread=True)
+    def _run_rollback(self, paths: list[str]) -> None:
+        assert self._sftp_client is not None
+        for rel_path in paths:
+            entry = self.session.get_entry(rel_path)
+            if entry is None:
+                self.app.call_from_thread(
+                    self._append_rollback_log, f"No snapshot: {rel_path}"
+                )
+                continue
+            remote_abs = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
+            if entry.existed_remotely():
+                try:
+                    assert entry.original_bytes is not None
+                    self._sftp_client.upload_bytes(entry.original_bytes, remote_abs)
+                    self.app.call_from_thread(
+                        self._append_rollback_log, f"Restored: {rel_path}"
+                    )
+                except SFTPError as exc:
+                    self.app.call_from_thread(
+                        self._append_rollback_log, f"Failed {rel_path}: {exc}"
+                    )
+            else:
+                try:
+                    self._sftp_client.delete_remote_file(remote_abs)
+                    self.app.call_from_thread(
+                        self._append_rollback_log,
+                        f"Deleted (new file rollback): {rel_path}",
+                    )
+                except SFTPError as exc:
+                    self.app.call_from_thread(
+                        self._append_rollback_log, f"Failed to delete {rel_path}: {exc}"
+                    )
+        self.app.call_from_thread(
+            self._append_rollback_log, "\n[bold yellow]Rollback complete.[/]"
+        )
+        self.app.call_from_thread(self._populate_rollback_list)
 
     def action_refresh_files(self) -> None:
         self._refresh_file_lists_in_thread()
@@ -853,106 +957,6 @@ class FileSelectScreen(Screen):
     def _refresh_file_lists_in_thread(self) -> None:
         """Background worker that re-fetches both file lists on F5."""
         self._load_file_lists()
-
-
-# ---------------------------------------------------------------------------
-# Rollback screen
-# ---------------------------------------------------------------------------
-
-
-class RollbackScreen(Screen):
-    """Shows session rollback entries for restoring deployed files."""
-
-    BINDINGS = [
-        Binding("escape", "app.pop_screen", "Cancel"),
-        Binding("ctrl+r", "do_rollback", "Rollback selected", priority=True),
-        Binding("space", "toggle_selection", "Toggle", show=False),
-    ]
-
-    CSS = """
-    RollbackScreen {
-        layout: vertical;
-        background: #0a0a0f;
-    }
-    #rollback-hint {
-        margin: 1 2 0 2;
-        color: #ffaa00;
-    }
-    #rollback-list {
-        height: 1fr;
-        border: round #ffaa00;
-        margin: 1 2;
-        background: #0f0f1a;
-    }
-    """
-
-    def __init__(
-        self,
-        workspace: Workspace,
-        sftp_client: SFTPClient,
-        session: RollbackSession,
-    ) -> None:
-        super().__init__()
-        self.workspace = workspace
-        self.sftp_client = sftp_client
-        self.session = session
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield Label(
-            "[bold #ffaa00]Session Rollback[/]  — Space to select, Ctrl+R to restore, Esc to cancel",
-            id="rollback-hint",
-        )
-        yield SelectionList(id="rollback-list")
-        yield Footer()
-
-    def on_mount(self) -> None:
-        self._load_entries()
-
-    def _load_entries(self) -> None:
-        sl: SelectionList = self.query_one("#rollback-list")
-        sl.clear_options()
-        for entry in self.session.list_entries():
-            existed = "existed" if entry.existed_remotely() else "NEW (no prior content)"
-            label = f"{entry.rel_path}  [{existed}]  @ {entry.timestamp.strftime('%H:%M:%S')}"
-            sl.add_option(Selection(label, entry.rel_path, initial_state=False))
-
-    def action_do_rollback(self) -> None:
-        sl: SelectionList = self.query_one("#rollback-list")
-        selected_paths = list(sl.selected)
-        if not selected_paths:
-            self.notify("No files selected for rollback.", severity="warning")
-            return
-        self._perform_rollback(selected_paths)
-
-    @work(thread=True)
-    def _perform_rollback(self, paths: list[str]) -> None:
-        messages: list[str] = []
-        for rel_path in paths:
-            entry = self.session.get_entry(rel_path)
-            if entry is None:
-                messages.append(f"No snapshot for {rel_path}")
-                continue
-
-            remote_abs = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
-            if entry.existed_remotely():
-                try:
-                    assert entry.original_bytes is not None
-                    self.sftp_client.upload_bytes(entry.original_bytes, remote_abs)
-                    messages.append(f"Restored: {rel_path}")
-                except SFTPError as exc:
-                    messages.append(f"Failed {rel_path}: {exc}")
-            else:
-                # File was new — delete it to roll back
-                try:
-                    self.sftp_client.delete_remote_file(remote_abs)
-                    messages.append(f"Deleted (rollback new file): {rel_path}")
-                except SFTPError as exc:
-                    messages.append(f"Failed to delete {rel_path}: {exc}")
-
-        summary = "\n".join(messages)
-        self.app.call_from_thread(self.notify, f"Rollback complete:\n{summary}", timeout=15)
-        self.app.call_from_thread(self._load_entries)
 
 
 # ---------------------------------------------------------------------------
