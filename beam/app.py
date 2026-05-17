@@ -44,7 +44,30 @@ from textual.widgets import (
     Static,
 )
 from textual.widgets.selection_list import Selection
+from textual.widgets._toggle_button import ToggleButton
+from textual.strip import Strip
 from rich.markup import escape as markup_escape
+
+ToggleButton.BUTTON_LEFT = "["
+ToggleButton.BUTTON_INNER = "✓"
+ToggleButton.BUTTON_RIGHT = "]"
+
+
+class BeamSelectionList(SelectionList):
+    """SelectionList that hides the checkbox prefix for disabled (directory) items."""
+
+    def render_line(self, y: int) -> Strip:
+        strip = super().render_line(y)
+        _, scroll_y = self.scroll_offset
+        index = scroll_y + y
+        try:
+            option = self.get_option_at_index(index)
+            if option.disabled:
+                segments = list(strip)
+                return Strip(segments[4:])
+        except Exception:
+            pass
+        return strip
 
 from .config import Workspace, WorkspaceConfig
 from .diff import build_local_tree, compute_diff
@@ -810,14 +833,14 @@ class FileSelectScreen(Screen):
                     "  [dim]Space select  ·  Ctrl+A all/none  ·  Ctrl+D deploy[/]",
                     classes="panel-header",
                 )
-                yield SelectionList(id="local-list")
+                yield BeamSelectionList(id="local-list")
             with Container(id="remote-panel"):
                 yield Label(
                     "[bold bright_magenta]  REMOTE[/]"
                     "  [dim]Space select  ·  Ctrl+X delete[/]",
                     classes="panel-header",
                 )
-                yield SelectionList(id="remote-list")
+                yield BeamSelectionList(id="remote-list")
         # Loading indicator
         yield LoadingIndicator(id="loading-indicator")
         # Deploy log
@@ -829,7 +852,7 @@ class FileSelectScreen(Screen):
                 "[dim]Space select  ·  Ctrl+R restore  ·  Esc close[/]",
                 classes="panel-header",
             )
-            yield SelectionList(id="rollback-list")
+            yield BeamSelectionList(id="rollback-list")
             yield Static(id="rollback-result")
         yield Footer()
 
