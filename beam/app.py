@@ -44,6 +44,7 @@ from textual.widgets import (
     Static,
 )
 from textual.widgets.selection_list import Selection
+from rich.markup import escape as markup_escape
 
 from .config import Workspace, WorkspaceConfig
 from .diff import build_local_tree, compute_diff
@@ -1309,8 +1310,9 @@ class FileSelectScreen(Screen):
         sl.clear_options()
         for entry in self.session.list_entries():
             existed = "[dim]existed[/]" if entry.existed_remotely() else "[bold bright_green]NEW[/]"
+            safe_path = markup_escape(entry.rel_path)
             label = (
-                f"  [bright_yellow]{entry.rel_path}[/]"
+                f"  [bright_yellow]{safe_path}[/]"
                 f"  [{existed}]"
                 f"  [dim]@ {entry.timestamp.strftime('%H:%M:%S')}[/]"
             )
