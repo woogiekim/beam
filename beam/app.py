@@ -456,10 +456,11 @@ class FileSelectScreen(Screen):
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
         Binding("ctrl+d", "deploy_selected", "Deploy", priority=True),
+        Binding("ctrl+x", "delete_remote_selected", "Delete Remote", priority=True),
         Binding("ctrl+r", "show_rollback", "Rollback", priority=True),
         Binding("space", "toggle_selection", "Toggle", show=False),
         Binding("f5", "refresh_files", "Refresh", priority=True),
-        Binding("ctrl+a", "toggle_all_selection", "Select All/None", priority=True),
+        Binding("ctrl+a", "toggle_all_selection", "Sel All/None", priority=True),
     ]
 
     CSS = """
@@ -539,10 +540,10 @@ class FileSelectScreen(Screen):
                 yield SelectionList(id="local-list")
             with Container(id="remote-panel"):
                 yield Label(
-                    "[bold #00ff88]Remote[/]  [dim](read-only reference)[/]",
+                    "[bold #00ff88]Remote[/]  [dim](Space to select, Ctrl+X to delete)[/]",
                     classes="panel-header",
                 )
-                yield ListView(id="remote-list")
+                yield SelectionList(id="remote-list")
         yield Static(id="deploy-log")
         yield Footer()
 
@@ -600,7 +601,7 @@ class FileSelectScreen(Screen):
             )
 
     def _load_file_lists(self) -> None:
-        """Populate local SelectionList and remote ListView with diff indicators."""
+        """Populate local and remote SelectionLists with diff indicators."""
         local_root = Path(self.workspace.local_root).expanduser().resolve()
         local_set: frozenset[str] = build_local_tree(local_root)
 
@@ -651,10 +652,38 @@ class FileSelectScreen(Screen):
             sl.add_option(sel)
 
     def _update_remote_list(self, paths: list[str]) -> None:
-        lv: ListView = self.query_one("#remote-list")
-        lv.clear()
+        sl: SelectionList = self.query_one("#remote-list")
+        sl.clear_options()
         for path in paths:
-            lv.append(ListItem(Label(path)))
+            sl.add_option(Selection(path, path, initial_state=False))
+
+    def action_delete_remote_selected(self) -> None:
+        if self._sftp_client is None:
+            self.notify("Not connected.", severity="error")
+            return
+        sl: SelectionList = self.query_one("#remote-list")
+        selected = list(sl.selected)
+        if not selected:
+            self.notify("No remote files selected. Use Space to select files.", severity="warning")
+            return
+        self._run_delete_remote(selected)
+
+    @work(thread=True)
+    def _run_delete_remote(self, rel_paths: list[str]) -> None:
+        assert self._sftp_client is not None
+        results: list[str] = []
+        for rel_path in rel_paths:
+            remote_abs = f"{self.workspace.remote_root.rstrip('/')}/{rel_path}"
+            try:
+                self._sftp_client.delete_remote_file(remote_abs)
+                results.append(f"Deleted: {rel_path}")
+            except SFTPError as exc:
+                results.append(f"Failed {rel_path}: {exc}")
+        summary = "\n".join(results)
+        self.app.call_from_thread(
+            self.notify, f"Remote delete complete:\n{summary}", timeout=10
+        )
+        self._load_file_lists()
 
     def action_toggle_all_selection(self) -> None:
         """Ctrl+A: select all if any are unselected, deselect all if all selected."""
