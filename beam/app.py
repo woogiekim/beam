@@ -342,7 +342,6 @@ class WorkspaceScreen(Screen):
     """Screen for listing and selecting a workspace."""
 
     BINDINGS = [
-        Binding("escape", "app.pop_screen", "Back"),
         Binding("ctrl+n", "add_workspace", "Add", priority=True),
         Binding("ctrl+e", "edit_workspace", "Edit", priority=True),
         Binding("ctrl+d", "delete_workspace", "Delete", priority=True),
