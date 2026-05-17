@@ -678,6 +678,7 @@ class FileSelectScreen(Screen):
     #local-panel:focus-within {
         border: heavy #007a7a;
         border-title-color: #007a7a;
+        background: #000000;
         opacity: 1.0;
     }
     #remote-panel {
@@ -692,6 +693,7 @@ class FileSelectScreen(Screen):
     #remote-panel:focus-within {
         border: heavy #7a007a;
         border-title-color: #7a007a;
+        background: #000000;
         opacity: 1.0;
     }
     .panel-header {
