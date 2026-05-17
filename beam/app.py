@@ -794,6 +794,25 @@ class FileSelectScreen(Screen):
                 remote_sl.highlighted = i
                 break
 
+    def action_toggle_selection(self) -> None:
+        """Space: toggle the highlighted item, but never toggle directory headers."""
+        sl = self.focused
+        if not isinstance(sl, SelectionList):
+            return
+        highlighted = sl.highlighted
+        if highlighted is None:
+            return
+        try:
+            opt = sl.get_option_at_index(highlighted)
+        except Exception:
+            return
+        val = getattr(opt, 'value', None)
+        if val is not None and str(val).startswith('__dir__:'):
+            return  # Do not toggle directory headers
+        if getattr(opt, 'disabled', False):
+            return  # Do not toggle disabled entries in general
+        sl.toggle(opt)
+
     def action_toggle_all_selection(self) -> None:
         """Ctrl+A: select all files if any unselected, deselect all if all selected."""
         sl: SelectionList = self.query_one("#local-list")
