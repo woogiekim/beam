@@ -264,6 +264,12 @@ class WorkspaceFormScreen(Screen):
         if not remote_root:
             self._show_error("Remote root is required.")
             return None
+        if not remote_root.startswith("/"):
+            self._show_error(
+                "Remote root must be an absolute path (e.g. /upload, /var/www). "
+                "Relative paths would be resolved from the server's home directory."
+            )
+            return None
 
         # Auth check
         if not password and not key_path:

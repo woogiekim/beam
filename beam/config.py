@@ -36,6 +36,11 @@ class Workspace:
             raise ValueError(
                 f"Workspace '{self.name}' must have either password or key_path set."
             )
+        if not self.remote_root.startswith("/"):
+            raise ValueError(
+                f"Workspace '{self.name}': remote_root must be an absolute path "
+                f"(must start with '/'), got: {self.remote_root!r}"
+            )
 
     def auth_type(self) -> str:
         """Return 'key' when using an SSH key, 'password' otherwise."""

@@ -49,6 +49,39 @@ class TestWorkspace:
                 remote_root="/r",
             )
 
+    def test_absolute_remote_root_accepted(self) -> None:
+        ws = Workspace(
+            name="abs",
+            local_root="/tmp",
+            host="h",
+            user="u",
+            remote_root="/upload",
+            password="p",
+        )
+        assert ws.remote_root == "/upload"
+
+    def test_relative_remote_root_raises(self) -> None:
+        with pytest.raises(ValueError, match="remote_root must be an absolute path"):
+            Workspace(
+                name="rel",
+                local_root="/tmp",
+                host="h",
+                user="u",
+                remote_root="upload",
+                password="p",
+            )
+
+    def test_tilde_remote_root_raises(self) -> None:
+        with pytest.raises(ValueError, match="remote_root must be an absolute path"):
+            Workspace(
+                name="tilde",
+                local_root="/tmp",
+                host="h",
+                user="u",
+                remote_root="~/upload",
+                password="p",
+            )
+
     def test_default_threshold(self) -> None:
         ws = Workspace(
             name="x", local_root="/x", host="h", user="u",
