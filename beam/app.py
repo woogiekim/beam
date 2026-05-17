@@ -705,9 +705,17 @@ class FileSelectScreen(Screen):
     }
     #local-list {
         height: 1fr;
+        background: #020204;
+    }
+    #local-panel:focus-within #local-list {
+        background: #000000;
     }
     #remote-list {
         height: 1fr;
+        background: #020204;
+    }
+    #remote-panel:focus-within #remote-list {
+        background: #000000;
     }
 
     /* ── Deploy log panel ─────────────────────────────────────── */
@@ -1085,14 +1093,9 @@ class FileSelectScreen(Screen):
             )
             return
         # Show confirmation before deleting remote files
-        if len(selected) == 1:
-            file_list = str(selected[0])
-        else:
-            file_list = f"{selected[0]} 외 {len(selected) - 1}개"
         message = (
             f"Permanently delete [bold]{len(selected)}[/] remote file(s) from "
             f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]?\n\n"
-            f"Files: {file_list}\n\n"
             f"[bold red]This cannot be undone.[/]"
         )
         self.app.push_screen(
@@ -1183,14 +1186,9 @@ class FileSelectScreen(Screen):
             )
             return
         # Show confirmation before deploying
-        if len(selected) == 1:
-            file_list = str(selected[0])
-        else:
-            file_list = f"{selected[0]} 외 {len(selected) - 1}개"
         message = (
             f"Deploy [bold]{len(selected)}[/] file(s) to "
-            f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]?\n\n"
-            f"Files: {file_list}"
+            f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/]?"
         )
 
         def _do_deploy() -> None:
@@ -1289,15 +1287,10 @@ class FileSelectScreen(Screen):
                 self._rollback_panel_visible = False
             else:
                 # Show confirmation before rolling back
-                if len(selected) == 1:
-                    file_list = str(selected[0])
-                else:
-                    file_list = f"{selected[0]} 외 {len(selected) - 1}개"
                 message = (
                     f"Restore [bold]{len(selected)}[/] file(s) on "
                     f"[bold]{self.workspace.host}:{self.workspace.remote_root}[/] "
-                    f"to their pre-deploy snapshots?\n\n"
-                    f"Files: {file_list}"
+                    f"to their pre-deploy snapshots?"
                 )
 
                 def _do_rollback() -> None:
