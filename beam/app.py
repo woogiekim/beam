@@ -49,6 +49,7 @@ from textual.strip import Strip
 from rich.markup import escape as markup_escape
 from rich.segment import Segment as RichSegment
 from rich.style import Style as RichStyle
+from rich.text import Text as RichText
 
 
 class BeamSelectionList(SelectionList):
@@ -62,6 +63,58 @@ class BeamSelectionList(SelectionList):
     _STYLE_CHECKED_HL       = RichStyle.parse("bold #39ff14 on #0178D4")
     _STYLE_UNCHECKED        = RichStyle.parse("#4a6070")
     _STYLE_UNCHECKED_HL     = RichStyle.parse("#c0d8f0 on #0178D4")
+
+    def _highlighted_dir_path(self) -> "str | None":
+        highlighted = self.highlighted
+        if highlighted is None:
+            return None
+        try:
+            opt = self.get_option_at_index(highlighted)
+            val = getattr(opt, "value", None)
+            if val is not None and str(val).startswith("__dir__:"):
+                return str(val)[len("__dir__:"):]
+        except Exception:
+            pass
+        return None
+
+    def _dir_toggle(self, dir_path: str, action: str = "toggle") -> None:
+        """Directly call screen's dir collapse logic — avoids Textual message routing."""
+        screen = self.screen
+        if not hasattr(screen, "_toggle_dir_collapse"):
+            return
+        if action == "toggle":
+            screen._toggle_dir_collapse(self, dir_path)
+            return
+        is_local = self.id == "local-list"
+        collapsed = screen._local_collapsed_dirs if is_local else screen._remote_collapsed_dirs
+        if action == "expand":
+            collapsed.discard(dir_path)
+        else:
+            collapsed.add(dir_path)
+        if is_local:
+            screen._rebuild_local_list_from_cache()
+        else:
+            screen._rebuild_remote_list_from_cache()
+        # Restore cursor to the toggled dir so focus does not jump
+        if hasattr(screen, "_highlight_option_value"):
+            screen._highlight_option_value(self, f"__dir__:{dir_path}")
+
+    def action_select(self) -> None:
+        """Intercept enter/space on directory rows; delegate to parent for file rows."""
+        dir_path = self._highlighted_dir_path()
+        if dir_path is not None:
+            self._dir_toggle(dir_path, "toggle")
+            return
+        super().action_select()
+
+    def on_key(self, event: "events.Key") -> None:
+        """Intercept right/left arrows on directory rows for expand/collapse."""
+        if event.key in ("right", "left"):
+            dir_path = self._highlighted_dir_path()
+            if dir_path is not None:
+                event.prevent_default()
+                event.stop()
+                self._dir_toggle(dir_path, "expand" if event.key == "right" else "collapse")
 
     def render_line(self, y: int) -> Strip:
         strip = super().render_line(y)
@@ -678,6 +731,8 @@ class FileSelectScreen(Screen):
         Binding("enter", "toggle_dir_or_open", "Toggle/Open", show=False),
         Binding("f5", "refresh_files", "Refresh", priority=True),
         Binding("ctrl+a", "toggle_all_selection", "Sel All/None", priority=True),
+        Binding("shift+left", "collapse_all_dirs", "Collapse All", priority=True),
+        Binding("shift+right", "expand_all_dirs", "Expand All", priority=True),
     ]
 
     CSS = """
@@ -842,6 +897,18 @@ class FileSelectScreen(Screen):
         # Directories collapsed per panel — paths stored as relative POSIX strings
         self._local_collapsed_dirs: set[str] = set()
         self._remote_collapsed_dirs: set[str] = set()
+        # Cached file data — populated by _load_file_lists, used by _rebuild_lists_from_cache
+        self._cached_local_set: frozenset = frozenset()
+        self._cached_local_stats: dict = {}
+        self._cached_remote_stats: dict = {}
+        self._cached_remote_set: frozenset = frozenset()
+        self._cached_empty_local_dirs: frozenset = frozenset()
+        self._cached_empty_remote_dirs: frozenset = frozenset()
+        # Pre-sorted path lists — avoid re-sorting on every dir toggle
+        self._cached_local_paths_sorted: list[str] = []
+        self._cached_remote_paths_sorted: list[str] = []
+        self._cached_empty_local_dirs_sorted: list[str] = []
+        self._cached_empty_remote_dirs_sorted: list[str] = []
         # Live search state — one query per panel list
         self._search_query: str = ""
         self._search_list_id: Optional[str] = None  # "local-list" or "remote-list"
@@ -927,33 +994,64 @@ class FileSelectScreen(Screen):
                 bar.update("")
                 bar.remove_class("--active")
 
-    def _apply_search(self, list_id: str, query: str) -> None:
-        """Scroll the list to the first item whose filename matches *query*."""
-        try:
-            sl: BeamSelectionList = self.query_one(f"#{list_id}", BeamSelectionList)
-        except Exception:
-            return
+    @staticmethod
+    def _option_search_name(opt) -> str:
+        """Return the lowercase basename used to match an option against a search query."""
+        val = str(getattr(opt, "value", ""))
+        if val.startswith("__dir__:"):
+            return val[len("__dir__:"):].rsplit("/", 1)[-1].lower()
+        return val.rsplit("/", 1)[-1].lower()
+
+    def _find_match(
+        self,
+        sl: "BeamSelectionList",
+        query: str,
+        start: int,
+        forward: bool = True,
+        inclusive: bool = False,
+    ) -> Optional[int]:
+        """Find the index of the next/prev option matching *query*, wrapping around.
+
+        When *inclusive* is True the option at *start* is itself considered.
+        """
         q = query.lower()
         try:
             options = sl._options  # type: ignore[attr-defined]
         except AttributeError:
-            return
-        for i, opt in enumerate(options):
+            return None
+        n = len(options)
+        if n == 0:
+            return None
+        if forward:
+            order = list(range(start + (0 if inclusive else 1), n)) + list(
+                range(0, start + (0 if inclusive else 1))
+            )
+        else:
+            order = list(range(start - (0 if inclusive else 1), -1, -1)) + list(
+                range(n - 1, start - (0 if inclusive else 1), -1)
+            )
+        for i in order:
+            opt = options[i]
             if getattr(opt, "disabled", False):
                 continue
-            val = str(getattr(opt, "value", ""))
-            if val.startswith("__dir__:"):
-                continue
-            # Match against the last path component (filename)
-            filename = val.split("/")[-1].lower()
-            if q in filename:
-                sl.highlighted = i
-                # Scroll the highlighted item into view
-                try:
-                    sl.scroll_to_highlight()
-                except Exception:
-                    pass
-                break
+            if q in self._option_search_name(opt):
+                return i
+        return None
+
+    def _apply_search(self, list_id: str, query: str) -> None:
+        """Move the cursor to the first item (file or directory) matching *query*."""
+        try:
+            sl: BeamSelectionList = self.query_one(f"#{list_id}", BeamSelectionList)
+        except Exception:
+            return
+        # Start from the top, inclusive so the current row is considered first
+        target = self._find_match(sl, query, start=0, forward=True, inclusive=True)
+        if target is not None:
+            sl.highlighted = target
+            try:
+                sl.scroll_to_highlight()
+            except Exception:
+                pass
 
     def _clear_search(self) -> None:
         """Clear the current search query and hide the search bar."""
@@ -977,7 +1075,23 @@ class FileSelectScreen(Screen):
         key = event.key
         char = event.character
 
-        # Navigation keys clear the search so focus follows the cursor freely
+        # When a search is active, up/down jump between matches (wrapping)
+        if key in ("up", "down") and self._is_search_active() and self._search_list_id == list_id:
+            event.prevent_default()
+            event.stop()
+            start = focused.highlighted if focused.highlighted is not None else 0
+            target = self._find_match(
+                focused, self._search_query, start=start, forward=(key == "down")
+            )
+            if target is not None:
+                focused.highlighted = target
+                try:
+                    focused.scroll_to_highlight()
+                except Exception:
+                    pass
+            return
+
+        # Other navigation keys clear the search so focus follows the cursor freely
         if key in ("up", "down", "enter", "home", "end", "pageup", "pagedown"):
             self._clear_search()
             return
@@ -1166,22 +1280,35 @@ class FileSelectScreen(Screen):
             except OSError:
                 local_stats[rel_path] = (0, 0.0)
 
+        # Cache fetched data so dir toggle can rebuild UI without I/O
+        self._cached_local_set = local_set
+        self._cached_local_stats = local_stats
+        self._cached_remote_stats = remote_stats
+        self._cached_remote_set = remote_set
+        self._cached_empty_local_dirs = frozenset(empty_local_dirs)
+        self._cached_empty_remote_dirs = empty_remote_dirs
+        # Pre-sort to avoid O(N log N) sort on every toggle
+        self._cached_local_paths_sorted = sorted(local_set)
+        self._cached_remote_paths_sorted = sorted(remote_set)
+        self._cached_empty_local_dirs_sorted = sorted(empty_local_dirs)
+        self._cached_empty_remote_dirs_sorted = sorted(empty_remote_dirs)
+
         local_selections = self._build_tree_selections(
-            paths=sorted(local_set),
+            paths_sorted=self._cached_local_paths_sorted,
             stats=local_stats,
             remote_stats=remote_stats,
             remote_set=remote_set,
             show_diff=True,
-            empty_dirs=frozenset(empty_local_dirs),
+            empty_dirs_sorted=self._cached_empty_local_dirs_sorted,
             collapsed_dirs=self._local_collapsed_dirs,
         )
         remote_selections = self._build_tree_selections(
-            paths=sorted(remote_set),
+            paths_sorted=self._cached_remote_paths_sorted,
             stats=remote_stats,
             remote_stats={},
             remote_set=frozenset(),
             show_diff=False,
-            empty_dirs=empty_remote_dirs,
+            empty_dirs_sorted=self._cached_empty_remote_dirs_sorted,
             collapsed_dirs=self._remote_collapsed_dirs,
         )
 
@@ -1199,12 +1326,12 @@ class FileSelectScreen(Screen):
 
     def _build_tree_selections(
         self,
-        paths: list[str],
+        paths_sorted: list[str],
         stats: dict[str, tuple[int, float]],
         remote_stats: dict[str, tuple[int, float]],
         remote_set: frozenset[str],
         show_diff: bool,
-        empty_dirs: frozenset[str] = frozenset(),
+        empty_dirs_sorted: list[str],
         collapsed_dirs: Optional[set[str]] = None,
     ) -> list[Selection]:
         if collapsed_dirs is None:
@@ -1212,46 +1339,53 @@ class FileSelectScreen(Screen):
 
         entries: list[Selection] = []
         seen_dirs: set[str] = set()
+        # Cache of "is this path hidden under a collapsed ancestor" — avoids
+        # recomputing for every file when many siblings share the same ancestor.
+        hidden_cache: dict[str, bool] = {}
 
         def _is_hidden_under_collapsed(rel_path: str) -> bool:
-            """Return True if any ancestor directory is in collapsed_dirs."""
+            cached = hidden_cache.get(rel_path)
+            if cached is not None:
+                return cached
+            # Walk ancestors from root down. Use rfind on accumulating prefix
+            # to skip "/".join() allocations on the hot path.
             parts = rel_path.split("/")
-            for depth in range(1, len(parts)):
-                ancestor = "/".join(parts[:depth])
-                if ancestor in collapsed_dirs:
+            acc = ""
+            for i in range(len(parts) - 1):
+                acc = parts[i] if i == 0 else acc + "/" + parts[i]
+                if acc in collapsed_dirs:
+                    hidden_cache[rel_path] = True
                     return True
+            hidden_cache[rel_path] = False
             return False
 
         def _make_dir_entry(dir_path: str, depth: int) -> Selection:
-            parts = dir_path.split("/")
-            dirname = parts[-1]
+            dirname = dir_path.rsplit("/", 1)[-1]
             indent = "  " * depth
-            icon = "▶" if dir_path in collapsed_dirs else "▼"
-            return Selection(
-                f"{indent}[bold #6080a0]{icon} {dirname}/[/]",
-                f"__dir__:{dir_path}",
-                initial_state=False,
-                disabled=False,
-            )
+            icon = "→" if dir_path in collapsed_dirs else "↓"
+            # Pre-parse markup once via Rich Text — Textual won't re-parse on refresh.
+            text = RichText.from_markup(f"{indent}[bold #6080a0]{icon} {dirname}/[/]")
+            return Selection(text, f"__dir__:{dir_path}", initial_state=False, disabled=False)
 
-        for rel_path in sorted(paths):
+        for rel_path in paths_sorted:
             parts = rel_path.split("/")
+            n_parts = len(parts)
 
-            # Directory headers — emit each ancestor that hasn't been seen yet,
-            # but skip any ancestor that is itself hidden under a collapsed dir.
-            for depth in range(len(parts) - 1):
-                dir_path = "/".join(parts[: depth + 1])
-                if dir_path not in seen_dirs:
-                    seen_dirs.add(dir_path)
-                    if not _is_hidden_under_collapsed(dir_path):
-                        entries.append(_make_dir_entry(dir_path, depth))
+            # Directory headers — emit each ancestor that hasn't been seen yet.
+            acc = ""
+            for depth in range(n_parts - 1):
+                acc = parts[depth] if depth == 0 else acc + "/" + parts[depth]
+                if acc not in seen_dirs:
+                    seen_dirs.add(acc)
+                    if not _is_hidden_under_collapsed(acc):
+                        entries.append(_make_dir_entry(acc, depth))
 
             # Skip file entries whose parent chain contains a collapsed dir
             if _is_hidden_under_collapsed(rel_path):
                 continue
 
             # File entry
-            indent = "  " * (len(parts) - 1)
+            indent = "  " * (n_parts - 1)
             filename = parts[-1]
             size, mtime = stats.get(rel_path, (0, 0.0))
             size_str = _fmt_size(size)
@@ -1267,17 +1401,16 @@ class FileSelectScreen(Screen):
             else:
                 label = f"{indent}[#d0e8f8]{filename}[/]  [dim]{size_str} {date_str}[/]"
 
-            entries.append(Selection(label, rel_path, initial_state=False))
+            entries.append(Selection(RichText.from_markup(label), rel_path, initial_state=False))
 
         # Add empty directory entries that haven't already been added as headers
-        for dir_path in sorted(empty_dirs):
+        for dir_path in empty_dirs_sorted:
             if dir_path in seen_dirs:
                 continue
             if _is_hidden_under_collapsed(dir_path):
                 continue
             seen_dirs.add(dir_path)
-            parts = dir_path.split("/")
-            depth = len(parts) - 1
+            depth = dir_path.count("/")
             entries.append(_make_dir_entry(dir_path, depth))
 
         return entries
@@ -1285,14 +1418,14 @@ class FileSelectScreen(Screen):
     def _update_local_list(self, selections: list[Selection]) -> None:
         sl: SelectionList = self.query_one("#local-list")
         sl.clear_options()
-        for sel in selections:
-            sl.add_option(sel)
+        if selections:
+            sl.add_options(selections)
 
     def _update_remote_list(self, selections: list[Selection]) -> None:
         sl: SelectionList = self.query_one("#remote-list")
         sl.clear_options()
-        for sel in selections:
-            sl.add_option(sel)
+        if selections:
+            sl.add_options(selections)
 
     def action_delete_remote_selected(self) -> None:
         if self._sftp_client is None:
@@ -1362,17 +1495,116 @@ class FileSelectScreen(Screen):
             return str(val)[len('__dir__:'):]
         return None
 
+    def _rebuild_local_list_from_cache(self) -> None:
+        """Re-render only the local panel from cache. No I/O."""
+        local_selections = self._build_tree_selections(
+            paths_sorted=self._cached_local_paths_sorted,
+            stats=self._cached_local_stats,
+            remote_stats=self._cached_remote_stats,
+            remote_set=self._cached_remote_set,
+            show_diff=True,
+            empty_dirs_sorted=self._cached_empty_local_dirs_sorted,
+            collapsed_dirs=self._local_collapsed_dirs,
+        )
+        self._update_local_list(local_selections)
+
+    def _rebuild_remote_list_from_cache(self) -> None:
+        """Re-render only the remote panel from cache. No I/O."""
+        remote_selections = self._build_tree_selections(
+            paths_sorted=self._cached_remote_paths_sorted,
+            stats=self._cached_remote_stats,
+            remote_stats={},
+            remote_set=frozenset(),
+            show_diff=False,
+            empty_dirs_sorted=self._cached_empty_remote_dirs_sorted,
+            collapsed_dirs=self._remote_collapsed_dirs,
+        )
+        self._update_remote_list(remote_selections)
+
+    def _rebuild_lists_from_cache(self) -> None:
+        """Re-render both file lists from cached data — used by F5 refresh path."""
+        self._rebuild_local_list_from_cache()
+        self._rebuild_remote_list_from_cache()
+        # Recompute total selectable from cache (not from visible selections)
+        self._total_count = len(self._cached_local_set)
+        self._update_status_bar()
+
+    def _highlight_option_value(self, sl: SelectionList, value: str) -> None:
+        """Find the option with the given value and move the cursor there."""
+        try:
+            for i in range(sl.option_count):
+                opt = sl.get_option_at_index(i)
+                if getattr(opt, "value", None) == value:
+                    sl.highlighted = i
+                    try:
+                        sl.scroll_to_highlight()
+                    except Exception:
+                        pass
+                    return
+        except Exception:
+            pass
+
+    @staticmethod
+    def _compute_all_dirs(paths_sorted: list[str], empty_dirs: frozenset[str]) -> set[str]:
+        """Return every directory rel-path (parents + empty dirs) seen in the cache."""
+        dirs: set[str] = set()
+        for p in paths_sorted:
+            parts = p.split("/")
+            acc = ""
+            for i in range(len(parts) - 1):
+                acc = parts[i] if i == 0 else acc + "/" + parts[i]
+                dirs.add(acc)
+        dirs.update(empty_dirs)
+        return dirs
+
+    def action_collapse_all_dirs(self) -> None:
+        """Collapse every directory in the focused panel."""
+        sl = self.focused
+        if not isinstance(sl, BeamSelectionList) or sl.id not in ("local-list", "remote-list"):
+            return
+        is_local = sl.id == "local-list"
+        if is_local:
+            all_dirs = self._compute_all_dirs(
+                self._cached_local_paths_sorted, self._cached_empty_local_dirs
+            )
+            self._local_collapsed_dirs.clear()
+            self._local_collapsed_dirs.update(all_dirs)
+            self._rebuild_local_list_from_cache()
+        else:
+            all_dirs = self._compute_all_dirs(
+                self._cached_remote_paths_sorted, self._cached_empty_remote_dirs
+            )
+            self._remote_collapsed_dirs.clear()
+            self._remote_collapsed_dirs.update(all_dirs)
+            self._rebuild_remote_list_from_cache()
+
+    def action_expand_all_dirs(self) -> None:
+        """Expand every directory in the focused panel."""
+        sl = self.focused
+        if not isinstance(sl, BeamSelectionList) or sl.id not in ("local-list", "remote-list"):
+            return
+        is_local = sl.id == "local-list"
+        if is_local:
+            self._local_collapsed_dirs.clear()
+            self._rebuild_local_list_from_cache()
+        else:
+            self._remote_collapsed_dirs.clear()
+            self._rebuild_remote_list_from_cache()
+
     def _toggle_dir_collapse(self, sl: SelectionList, dir_path: str) -> None:
-        """Toggle the collapsed state of a directory in the appropriate panel and re-render."""
+        """Toggle a dir's collapsed state and rebuild ONLY the affected panel."""
         is_local = sl.id == "local-list"
         collapsed = self._local_collapsed_dirs if is_local else self._remote_collapsed_dirs
         if dir_path in collapsed:
             collapsed.discard(dir_path)
         else:
             collapsed.add(dir_path)
-        # Re-render the list in a background-safe way (we are on the main thread here)
-        self._set_conn_state(self._CONN_LOADING)
-        self._refresh_file_lists_in_thread()
+        if is_local:
+            self._rebuild_local_list_from_cache()
+        else:
+            self._rebuild_remote_list_from_cache()
+        # Restore cursor to the toggled dir so focus does not jump
+        self._highlight_option_value(sl, f"__dir__:{dir_path}")
 
     def action_toggle_dir_or_open(self) -> None:
         """Enter: toggle directory collapse if on a dir row, otherwise do nothing."""
