@@ -763,6 +763,18 @@ class FileSelectScreen(Screen):
         background: #000000;
     }
 
+    /* ── Live search bar (shown inside each panel during search) ── */
+    .search-bar {
+        height: 1;
+        background: #030308;
+        color: #00ffff;
+        padding: 0 2;
+        display: none;
+    }
+    .search-bar.--active {
+        display: block;
+    }
+
     /* ── Deploy log panel ─────────────────────────────────────── */
     #deploy-log {
         height: 9;
@@ -826,6 +838,9 @@ class FileSelectScreen(Screen):
         self._conn_state = self._CONN_IDLE
         self._selected_count = 0
         self._total_count = 0
+        # Live search state — one query per panel list
+        self._search_query: str = ""
+        self._search_list_id: Optional[str] = None  # "local-list" or "remote-list"
 
     def compose(self) -> ComposeResult:
         ws = self.workspace
@@ -852,6 +867,7 @@ class FileSelectScreen(Screen):
                     classes="panel-header",
                 )
                 yield BeamSelectionList(id="local-list")
+                yield Static("", id="local-search-bar", classes="search-bar")
             with Container(id="remote-panel"):
                 yield Label(
                     "[bold bright_magenta]  REMOTE[/]"
@@ -859,6 +875,7 @@ class FileSelectScreen(Screen):
                     classes="panel-header",
                 )
                 yield BeamSelectionList(id="remote-list")
+                yield Static("", id="remote-search-bar", classes="search-bar")
         # Loading indicator
         yield LoadingIndicator(id="loading-indicator")
         # Deploy log
@@ -873,6 +890,127 @@ class FileSelectScreen(Screen):
             yield BeamSelectionList(id="rollback-list")
             yield Static(id="rollback-result")
         yield Footer()
+
+    # ------------------------------------------------------------------
+    # Live search helpers
+    # ------------------------------------------------------------------
+
+    def _is_search_active(self) -> bool:
+        """Return True when a search query is in progress."""
+        return bool(self._search_query) and self._search_list_id is not None
+
+    def _search_bar_id(self, list_id: str) -> str:
+        """Map a list widget id to its companion search-bar id."""
+        if list_id == "local-list":
+            return "local-search-bar"
+        return "remote-search-bar"
+
+    def _update_search_bar(self) -> None:
+        """Repaint the active search bar; hide the inactive one."""
+        for list_id in ("local-list", "remote-list"):
+            bar_id = self._search_bar_id(list_id)
+            try:
+                bar = self.query_one(f"#{bar_id}", Static)
+            except Exception:
+                continue
+            if self._search_list_id == list_id and self._search_query:
+                bar.update(
+                    f"[bold #6080a0]Search:[/] [bold #00ffff]{markup_escape(self._search_query)}[/]"
+                    f"  [dim]Esc to clear[/]"
+                )
+                bar.add_class("--active")
+            else:
+                bar.update("")
+                bar.remove_class("--active")
+
+    def _apply_search(self, list_id: str, query: str) -> None:
+        """Scroll the list to the first item whose filename matches *query*."""
+        try:
+            sl: BeamSelectionList = self.query_one(f"#{list_id}", BeamSelectionList)
+        except Exception:
+            return
+        q = query.lower()
+        try:
+            options = sl._options  # type: ignore[attr-defined]
+        except AttributeError:
+            return
+        for i, opt in enumerate(options):
+            if getattr(opt, "disabled", False):
+                continue
+            val = str(getattr(opt, "value", ""))
+            if val.startswith("__dir__:"):
+                continue
+            # Match against the last path component (filename)
+            filename = val.split("/")[-1].lower()
+            if q in filename:
+                sl.highlighted = i
+                # Scroll the highlighted item into view
+                try:
+                    sl.scroll_to_highlight()
+                except Exception:
+                    pass
+                break
+
+    def _clear_search(self) -> None:
+        """Clear the current search query and hide the search bar."""
+        self._search_query = ""
+        self._search_list_id = None
+        self._update_search_bar()
+
+    # ------------------------------------------------------------------
+    # Key interception for live search
+    # ------------------------------------------------------------------
+
+    def on_key(self, event: "events.Key") -> None:
+        """Intercept printable characters to drive live search on file lists."""
+        focused = self.focused
+        if not isinstance(focused, BeamSelectionList):
+            return
+        list_id = focused.id
+        if list_id not in ("local-list", "remote-list"):
+            return
+
+        key = event.key
+        char = event.character
+
+        # Navigation keys clear the search so focus follows the cursor freely
+        if key in ("up", "down", "enter", "home", "end", "pageup", "pagedown"):
+            self._clear_search()
+            return
+
+        # Backspace: pop last character
+        if key == "backspace":
+            if self._search_query:
+                event.prevent_default()
+                self._search_query = self._search_query[:-1]
+                if self._search_query:
+                    self._search_list_id = list_id
+                    self._apply_search(list_id, self._search_query)
+                else:
+                    self._search_list_id = None
+                self._update_search_bar()
+            return
+
+        # Escape clears search (action_back handles screen navigation)
+        if key == "escape":
+            if self._is_search_active():
+                event.prevent_default()
+                self._clear_search()
+            return
+
+        # Printable character — no modifier keys (ctrl+x should not trigger search)
+        if char and char.isprintable() and len(char) == 1:
+            # Ignore if a control modifier is involved (ctrl+key produces char too)
+            if "ctrl" in key or "alt" in key or "meta" in key:
+                return
+            # Space is bound to toggle_selection — do not capture it for search
+            if key == "space" or char == " ":
+                return
+            event.prevent_default()
+            self._search_query += char
+            self._search_list_id = list_id
+            self._apply_search(list_id, self._search_query)
+            self._update_search_bar()
 
     def on_mount(self) -> None:
         ws = self.workspace
