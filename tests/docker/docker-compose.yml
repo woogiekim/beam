@@ -1,0 +1,17 @@
+services:
+  ssh-server:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: beam-test-ssh
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - USER_NAME=testuser
+      - USER_PASSWORD=testpass
+      - PASSWORD_ACCESS=true
+      - SUDO_ACCESS=false
+    volumes:
+      - ./remote-root:/remote-root
+    ports:
+      - "2222:2222"
+    restart: unless-stopped

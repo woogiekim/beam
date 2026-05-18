@@ -1,0 +1,3 @@
+# Ignore everything inside remote-root/ but keep the directory itself
+remote-root/*
+!remote-root/.gitkeep
