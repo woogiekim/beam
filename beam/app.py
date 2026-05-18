@@ -7,9 +7,30 @@ Provides screens for workspace selection, file multi-select, deployment, and rol
 from __future__ import annotations
 
 import datetime
+import json
 import os
 from pathlib import Path
 from typing import Callable, Optional
+
+
+_COLLAPSED_STATE_FILE = Path.home() / ".beam" / "collapsed-state.json"
+
+
+def _load_collapsed_state_file() -> dict:
+    """Load the persisted collapsed-dirs map; returns empty dict on any failure."""
+    try:
+        return json.loads(_COLLAPSED_STATE_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_collapsed_state_file(state: dict) -> None:
+    """Persist the collapsed-dirs map. Silently swallows I/O errors."""
+    try:
+        _COLLAPSED_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _COLLAPSED_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False))
+    except Exception:
+        pass
 
 
 def _fmt_size(size: int) -> str:
@@ -996,11 +1017,11 @@ class FileSelectScreen(Screen):
 
     @staticmethod
     def _option_search_name(opt) -> str:
-        """Return the lowercase basename used to match an option against a search query."""
+        """Return the lowercase FULL relative path for substring (contains) matching."""
         val = str(getattr(opt, "value", ""))
         if val.startswith("__dir__:"):
-            return val[len("__dir__:"):].rsplit("/", 1)[-1].lower()
-        return val.rsplit("/", 1)[-1].lower()
+            return val[len("__dir__:"):].lower()
+        return val.lower()
 
     def _find_match(
         self,
@@ -1065,6 +1086,16 @@ class FileSelectScreen(Screen):
 
     def on_key(self, event: "events.Key") -> None:
         """Intercept printable characters to drive live search on file lists."""
+        # ESC has the highest priority: when a search is active, the first ESC
+        # clears the search (consuming the event so the screen's "back" binding
+        # does NOT fire). A subsequent ESC with no active search falls through
+        # to the binding and pops the screen.
+        if event.key == "escape" and self._is_search_active():
+            event.prevent_default()
+            event.stop()
+            self._clear_search()
+            return
+
         focused = self.focused
         if not isinstance(focused, BeamSelectionList):
             return
@@ -1109,11 +1140,8 @@ class FileSelectScreen(Screen):
                 self._update_search_bar()
             return
 
-        # Escape clears search (action_back handles screen navigation)
+        # ESC with no active search: fall through to the screen's "back" binding.
         if key == "escape":
-            if self._is_search_active():
-                event.prevent_default()
-                self._clear_search()
             return
 
         # Printable character — no modifier keys (ctrl+x should not trigger search)
@@ -1292,6 +1320,9 @@ class FileSelectScreen(Screen):
         self._cached_remote_paths_sorted = sorted(remote_set)
         self._cached_empty_local_dirs_sorted = sorted(empty_local_dirs)
         self._cached_empty_remote_dirs_sorted = sorted(empty_remote_dirs)
+
+        # Restore persisted collapse state (or default to fully-collapsed on first load)
+        self._restore_collapse_state()
 
         local_selections = self._build_tree_selections(
             paths_sorted=self._cached_local_paths_sorted,
@@ -1507,6 +1538,7 @@ class FileSelectScreen(Screen):
             collapsed_dirs=self._local_collapsed_dirs,
         )
         self._update_local_list(local_selections)
+        self._persist_collapse_state()
 
     def _rebuild_remote_list_from_cache(self) -> None:
         """Re-render only the remote panel from cache. No I/O."""
@@ -1520,6 +1552,7 @@ class FileSelectScreen(Screen):
             collapsed_dirs=self._remote_collapsed_dirs,
         )
         self._update_remote_list(remote_selections)
+        self._persist_collapse_state()
 
     def _rebuild_lists_from_cache(self) -> None:
         """Re-render both file lists from cached data — used by F5 refresh path."""
@@ -1543,6 +1576,35 @@ class FileSelectScreen(Screen):
                     return
         except Exception:
             pass
+
+    def _restore_collapse_state(self) -> None:
+        """Restore collapsed dirs for this workspace, or default to fully-collapsed."""
+        saved_all = _load_collapsed_state_file()
+        saved = saved_all.get(self.workspace.name)
+        if isinstance(saved, dict):
+            self._local_collapsed_dirs.clear()
+            self._local_collapsed_dirs.update(saved.get("local", []))
+            self._remote_collapsed_dirs.clear()
+            self._remote_collapsed_dirs.update(saved.get("remote", []))
+            return
+        # First-time load for this workspace — start with every dir collapsed
+        self._local_collapsed_dirs.clear()
+        self._local_collapsed_dirs.update(
+            self._compute_all_dirs(self._cached_local_paths_sorted, self._cached_empty_local_dirs)
+        )
+        self._remote_collapsed_dirs.clear()
+        self._remote_collapsed_dirs.update(
+            self._compute_all_dirs(self._cached_remote_paths_sorted, self._cached_empty_remote_dirs)
+        )
+
+    def _persist_collapse_state(self) -> None:
+        """Persist current collapsed-dirs to disk for this workspace."""
+        state = _load_collapsed_state_file()
+        state[self.workspace.name] = {
+            "local": sorted(self._local_collapsed_dirs),
+            "remote": sorted(self._remote_collapsed_dirs),
+        }
+        _save_collapsed_state_file(state)
 
     @staticmethod
     def _compute_all_dirs(paths_sorted: list[str], empty_dirs: frozenset[str]) -> set[str]:
