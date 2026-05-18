@@ -69,7 +69,7 @@ class BeamSelectionList(SelectionList):
         index = scroll_y + y
         try:
             option = self.get_option_at_index(index)
-            if option.disabled:
+            if option.disabled or str(getattr(option, "value", "")).startswith("__dir__:"):
                 return Strip(list(strip)[4:])
 
             is_selected    = option.value in self._selected
@@ -1231,7 +1231,7 @@ class FileSelectScreen(Screen):
                 f"{indent}[bold #6080a0]{icon} {dirname}/[/]",
                 f"__dir__:{dir_path}",
                 initial_state=False,
-                disabled=True,
+                disabled=False,
             )
 
         for rel_path in sorted(paths):
