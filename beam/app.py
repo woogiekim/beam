@@ -675,6 +675,7 @@ class FileSelectScreen(Screen):
         Binding("ctrl+d", "delete_remote_selected", "Delete Remote", priority=True),
         Binding("ctrl+r", "show_rollback", "Rollback", priority=True),
         Binding("space", "toggle_selection", "Toggle", show=False),
+        Binding("enter", "toggle_dir_or_open", "Toggle/Open", show=False),
         Binding("f5", "refresh_files", "Refresh", priority=True),
         Binding("ctrl+a", "toggle_all_selection", "Sel All/None", priority=True),
     ]
@@ -826,6 +827,9 @@ class FileSelectScreen(Screen):
         self._conn_state = self._CONN_IDLE
         self._selected_count = 0
         self._total_count = 0
+        # Directories collapsed per panel — paths stored as relative POSIX strings
+        self._local_collapsed_dirs: set[str] = set()
+        self._remote_collapsed_dirs: set[str] = set()
 
     def compose(self) -> ComposeResult:
         ws = self.workspace
@@ -1031,6 +1035,7 @@ class FileSelectScreen(Screen):
             remote_set=remote_set,
             show_diff=True,
             empty_dirs=frozenset(empty_local_dirs),
+            collapsed_dirs=self._local_collapsed_dirs,
         )
         remote_selections = self._build_tree_selections(
             paths=sorted(remote_set),
@@ -1039,6 +1044,7 @@ class FileSelectScreen(Screen):
             remote_set=frozenset(),
             show_diff=False,
             empty_dirs=empty_remote_dirs,
+            collapsed_dirs=self._remote_collapsed_dirs,
         )
 
         self.app.call_from_thread(self._update_local_list, local_selections)
@@ -1061,27 +1067,50 @@ class FileSelectScreen(Screen):
         remote_set: frozenset[str],
         show_diff: bool,
         empty_dirs: frozenset[str] = frozenset(),
+        collapsed_dirs: Optional[set[str]] = None,
     ) -> list[Selection]:
+        if collapsed_dirs is None:
+            collapsed_dirs = set()
+
         entries: list[Selection] = []
         seen_dirs: set[str] = set()
+
+        def _is_hidden_under_collapsed(rel_path: str) -> bool:
+            """Return True if any ancestor directory is in collapsed_dirs."""
+            parts = rel_path.split("/")
+            for depth in range(1, len(parts)):
+                ancestor = "/".join(parts[:depth])
+                if ancestor in collapsed_dirs:
+                    return True
+            return False
+
+        def _make_dir_entry(dir_path: str, depth: int) -> Selection:
+            parts = dir_path.split("/")
+            dirname = parts[-1]
+            indent = "  " * depth
+            icon = "▶" if dir_path in collapsed_dirs else "▼"
+            return Selection(
+                f"{indent}[bold #6080a0]{icon} {dirname}/[/]",
+                f"__dir__:{dir_path}",
+                initial_state=False,
+                disabled=True,
+            )
 
         for rel_path in sorted(paths):
             parts = rel_path.split("/")
 
-            # Directory headers (disabled — navigate past, not selectable)
+            # Directory headers — emit each ancestor that hasn't been seen yet,
+            # but skip any ancestor that is itself hidden under a collapsed dir.
             for depth in range(len(parts) - 1):
                 dir_path = "/".join(parts[: depth + 1])
                 if dir_path not in seen_dirs:
                     seen_dirs.add(dir_path)
-                    indent = "  " * depth
-                    entries.append(
-                        Selection(
-                            f"{indent}[bold #6080a0]  {parts[depth]}/[/]",
-                            f"__dir__:{dir_path}",
-                            initial_state=False,
-                            disabled=True,
-                        )
-                    )
+                    if not _is_hidden_under_collapsed(dir_path):
+                        entries.append(_make_dir_entry(dir_path, depth))
+
+            # Skip file entries whose parent chain contains a collapsed dir
+            if _is_hidden_under_collapsed(rel_path):
+                continue
 
             # File entry
             indent = "  " * (len(parts) - 1)
@@ -1106,19 +1135,12 @@ class FileSelectScreen(Screen):
         for dir_path in sorted(empty_dirs):
             if dir_path in seen_dirs:
                 continue
+            if _is_hidden_under_collapsed(dir_path):
+                continue
             seen_dirs.add(dir_path)
             parts = dir_path.split("/")
-            dirname = parts[-1]
             depth = len(parts) - 1
-            indent = "  " * depth
-            entries.append(
-                Selection(
-                    f"{indent}[bold #6080a0]  {dirname}/[/]",
-                    f"__dir__:{dir_path}",
-                    initial_state=False,
-                    disabled=True,
-                )
-            )
+            entries.append(_make_dir_entry(dir_path, depth))
 
         return entries
 
@@ -1188,8 +1210,43 @@ class FileSelectScreen(Screen):
         )
         self._update_status_bar()
 
+    def _get_highlighted_dir_path(self, sl: SelectionList) -> Optional[str]:
+        """Return the directory rel-path if the currently highlighted row is a dir header."""
+        highlighted = sl.highlighted
+        if highlighted is None:
+            return None
+        try:
+            opt = sl.get_option_at_index(highlighted)
+        except Exception:
+            return None
+        val = getattr(opt, 'value', None)
+        if val is not None and str(val).startswith('__dir__:'):
+            return str(val)[len('__dir__:'):]
+        return None
+
+    def _toggle_dir_collapse(self, sl: SelectionList, dir_path: str) -> None:
+        """Toggle the collapsed state of a directory in the appropriate panel and re-render."""
+        is_local = sl.id == "local-list"
+        collapsed = self._local_collapsed_dirs if is_local else self._remote_collapsed_dirs
+        if dir_path in collapsed:
+            collapsed.discard(dir_path)
+        else:
+            collapsed.add(dir_path)
+        # Re-render the list in a background-safe way (we are on the main thread here)
+        self._set_conn_state(self._CONN_LOADING)
+        self._refresh_file_lists_in_thread()
+
+    def action_toggle_dir_or_open(self) -> None:
+        """Enter: toggle directory collapse if on a dir row, otherwise do nothing."""
+        sl = self.focused
+        if not isinstance(sl, SelectionList):
+            return
+        dir_path = self._get_highlighted_dir_path(sl)
+        if dir_path is not None:
+            self._toggle_dir_collapse(sl, dir_path)
+
     def action_toggle_selection(self) -> None:
-        """Space: toggle the highlighted item, but never toggle directory headers."""
+        """Space: toggle directory collapse if on a dir row, otherwise toggle file selection."""
         sl = self.focused
         if not isinstance(sl, SelectionList):
             return
@@ -1202,7 +1259,9 @@ class FileSelectScreen(Screen):
             return
         val = getattr(opt, 'value', None)
         if val is not None and str(val).startswith('__dir__:'):
-            return  # Do not toggle directory headers
+            dir_path = str(val)[len('__dir__:'):]
+            self._toggle_dir_collapse(sl, dir_path)
+            return
         if getattr(opt, 'disabled', False):
             return  # Do not toggle disabled entries in general
         sl.toggle(opt)
